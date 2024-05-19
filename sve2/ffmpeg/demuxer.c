@@ -4,6 +4,7 @@
 #include <threads.h>
 
 #include <libavformat/avformat.h>
+#include <libavutil/avutil.h>
 #include <libavutil/error.h>
 #include <log.h>
 
@@ -20,6 +21,8 @@ AVFormatContext *open_media(const char *path) {
     return NULL;
   }
 
+  log_info("opened media '%s' with AVFormatContext %p", path, fc);
+
   err = avformat_find_stream_info(fc, NULL);
   if (err < 0) {
     log_error("unable to find stream info of media '%s': %s", path,
@@ -27,6 +30,8 @@ AVFormatContext *open_media(const char *path) {
     avformat_close_input(&fc);
     return NULL;
   }
+
+  /* av_dump_format(fc, 0, path, NULL); */
 
   return fc;
 }
@@ -77,6 +82,13 @@ bool demuxer_should_send(demuxer_t *d) {
   return false;
 }
 
+static void dump_avpacket_info(AVPacket *pkt) {
+  log_trace("read packet %p: pts=%" PRId64 ", dts=%" PRId64
+            ", duration=%" PRId64 ", si=%d, size=%d, flags=%d",
+            pkt, pkt->pts, pkt->dts, pkt->duration, pkt->stream_index,
+            pkt->size, pkt->flags);
+}
+
 int demuxer_thread(void *u) {
   demuxer_t *d = (demuxer_t *)u;
   bool late_packet = false;
@@ -88,18 +100,18 @@ int demuxer_thread(void *u) {
   while (!demuxer_handle_cmd(d, &late_packet, &error, timeout)) {
     if (packet_stream_index >= 0) {
       if (!late_packet && !demuxer_should_send(d)) {
-        timeout = SVE2_NS_PER_SEC / 100; // 10ms
+        timeout = 10 * SVE2_NS_PER_SEC / 1000; // 10ms
         continue;
       }
 
       late_packet = false;
       assert(packet_stream_index < d->init.num_streams);
-      mpmc_send(&d->init.streams[packet_stream_index].packet_channel,
-                &(packet_msg_t){
-                    .packet = packet,
-                    .regular = true,
-                },
-                SVE_DEADLINE_INF);
+      nassert(mpmc_send(&d->init.streams[packet_stream_index].packet_channel,
+                        &(packet_msg_t){
+                            .packet = packet,
+                            .regular = true,
+                        },
+                        SVE_DEADLINE_INF));
       packet = NULL;
       packet_stream_index = -1;
     }
@@ -116,15 +128,20 @@ int demuxer_thread(void *u) {
         break;
       }
 
+      dump_avpacket_info(packet);
+
       for (i32 i = 0; i < d->init.num_streams; ++i) {
-        if (d->init.streams->index == packet->stream_index) {
+        if (d->init.streams[i].index == packet->stream_index) {
           packet_stream_index = i;
           break;
         }
       }
+
+      av_packet_unref(packet);
     }
   }
 
+  av_packet_free(&packet);
   for (i32 i = 0; i < d->init.num_streams; ++i) {
     mpmc_send(&d->init.streams[i].packet_channel,
               &(packet_msg_t){
@@ -137,9 +154,110 @@ int demuxer_thread(void *u) {
   return 0;
 }
 
+typedef enum {
+  VIDEO = (u32)1u << 20,
+  AUDIO = (u32)1u << 21,
+  SUBS = (u32)1u << 22,
+} stream_index_bit_t;
+
+i32 bitfield_index(stream_index_bit_t type, i16 index) {
+  assert(index >= 0);
+  u32 bitfield_index = type | (u32)index;
+  return -(i32)(bitfield_index + 1);
+}
+
+i32 stream_index_video(i16 index) { return bitfield_index(VIDEO, index); }
+i32 stream_index_audio(i16 index) { return bitfield_index(AUDIO, index); }
+i32 stream_index_subs(i16 index) { return bitfield_index(SUBS, index); }
+
+#define STREAM_INDEX_STRING_MAX_LENGTH 8 /* including \0 */
+static char *stream_index_to_string(i32 index,
+                                    char str[STREAM_INDEX_STRING_MAX_LENGTH]) {
+  if (index >= 0) {
+    nassert(snprintf(str, STREAM_INDEX_STRING_MAX_LENGTH, ":%" PRIi32, index));
+    return str;
+  }
+
+  u32 bitfield_index = (u32) - (index + 1);
+  enum AVMediaType media_type = AVMEDIA_TYPE_UNKNOWN;
+  if (bitfield_index & VIDEO) {
+    media_type = AVMEDIA_TYPE_VIDEO;
+  } else if (bitfield_index & AUDIO) {
+    media_type = AVMEDIA_TYPE_AUDIO;
+  } else if (bitfield_index & SUBS) {
+    media_type = AVMEDIA_TYPE_SUBTITLE;
+  } else {
+    log_warn("invalid stream bitfield index %x", (unsigned)bitfield_index);
+    assert(false);
+  }
+
+  index = (i32)(bitfield_index & ~(VIDEO | AUDIO | SUBS));
+  nassert(snprintf(str, STREAM_INDEX_STRING_MAX_LENGTH, "%c:%" PRIi32,
+                   av_get_media_type_string(media_type)[0], index));
+  return str;
+}
+
+#define si2str(index)                                                          \
+  stream_index_to_string(index, (char[STREAM_INDEX_STRING_MAX_LENGTH]){0})
+
+static i32 find_stream_index(AVFormatContext *fc, i32 index) {
+  if (index >= 0) {
+    return index < fc->nb_streams ? index : -1;
+  }
+
+  u32 bitfield_index = (u32) - (index + 1);
+  enum AVMediaType media_type = AVMEDIA_TYPE_UNKNOWN;
+  if (bitfield_index & VIDEO) {
+    media_type = AVMEDIA_TYPE_VIDEO;
+  } else if (bitfield_index & AUDIO) {
+    media_type = AVMEDIA_TYPE_AUDIO;
+  } else if (bitfield_index & SUBS) {
+    media_type = AVMEDIA_TYPE_SUBTITLE;
+  } else {
+    log_warn("invalid stream bitfield index %x", (unsigned)bitfield_index);
+    return -1;
+  }
+
+  index = (i32)(bitfield_index & ~(VIDEO | AUDIO | SUBS));
+  i32 counter = 0;
+  for (i32 i = 0; i < fc->nb_streams; ++i) {
+    if (fc->streams[i]->codecpar->codec_type != media_type) {
+      continue;
+    }
+
+    if (index == counter++) {
+      return i;
+    }
+  }
+
+  log_warn("media file only has %" PRIi32
+           " %s streams, requested stream of index %" PRIi32,
+           counter, av_get_media_type_string(media_type), index);
+  return -1;
+}
+
+static void init_stream(AVFormatContext *fc, demuxer_stream_t *stream,
+                        i32 initial_cap) {
+  i32 index = find_stream_index(fc, stream->index);
+  log_info("mapped stream %s of AVFormatContext %p to %s",
+           si2str(stream->index), fc, si2str(index));
+  stream->index = index;
+
+  if (stream->index < 0) {
+    return;
+  }
+
+  mpmc_init(&stream->packet_channel, initial_cap, SVE2_RB_DEFAULT_GROW,
+            sizeof(packet_msg_t));
+}
+
 void demuxer_init(demuxer_t *d, const demuxer_init_t *info) {
   d->init = *info;
   mpmc_init(&d->cmd, 0, SVE2_RB_DEFAULT_GROW, sizeof(cmd_t));
+  for (i32 i = 0; i < info->num_streams; ++i) {
+    init_stream(d->init.fc, &d->init.streams[i], info->num_buffered_packets);
+  }
+
   sve2_thrd_create(&d->thread, demuxer_thread, d);
 }
 
@@ -169,4 +287,19 @@ void demuxer_free(demuxer_t *d) {
   }
 
   mpmc_free(&d->cmd);
+  for (i32 i = 0; i < d->init.num_streams; ++i) {
+    demuxer_stream_t *s = &d->init.streams[i];
+    if (s->index < 0) {
+      continue;
+    }
+
+    packet_msg_t msg;
+    while (mpmc_recv(&s->packet_channel, &msg, SVE_DEADLINE_NOW)) {
+      if (msg.regular) {
+        log_trace("freeing packet %p", msg.packet);
+        av_packet_free(&msg.packet);
+      }
+    }
+    mpmc_free(&s->packet_channel);
+  }
 }
