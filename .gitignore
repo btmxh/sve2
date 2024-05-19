@@ -1,5 +1,6 @@
 # my preferred building method
 build.sh
+Makefile
 
 # LSP settings
 .clangd

@@ -21,7 +21,7 @@ AVFormatContext *open_media(const char *path) {
     return NULL;
   }
 
-  log_info("opened media '%s' with AVFormatContext %p", path, fc);
+  log_info("opened media '%s' with AVFormatContext %p", path, (const void *)fc);
 
   err = avformat_find_stream_info(fc, NULL);
   if (err < 0) {
@@ -85,8 +85,8 @@ bool demuxer_should_send(demuxer_t *d) {
 static void dump_avpacket_info(AVPacket *pkt) {
   log_trace("read packet %p: pts=%" PRId64 ", dts=%" PRId64
             ", duration=%" PRId64 ", si=%d, size=%d, flags=%d",
-            pkt, pkt->pts, pkt->dts, pkt->duration, pkt->stream_index,
-            pkt->size, pkt->flags);
+            (const void *)pkt, pkt->pts, pkt->dts, pkt->duration,
+            pkt->stream_index, pkt->size, pkt->flags);
 }
 
 int demuxer_thread(void *u) {
@@ -202,7 +202,7 @@ static char *stream_index_to_string(i32 index,
 
 static i32 find_stream_index(AVFormatContext *fc, i32 index) {
   if (index >= 0) {
-    return index < fc->nb_streams ? index : -1;
+    return index < (i32)fc->nb_streams ? index : -1;
   }
 
   u32 bitfield_index = (u32) - (index + 1);
@@ -220,7 +220,7 @@ static i32 find_stream_index(AVFormatContext *fc, i32 index) {
 
   index = (i32)(bitfield_index & ~(VIDEO | AUDIO | SUBS));
   i32 counter = 0;
-  for (i32 i = 0; i < fc->nb_streams; ++i) {
+  for (i32 i = 0; i < (i32)fc->nb_streams; ++i) {
     if (fc->streams[i]->codecpar->codec_type != media_type) {
       continue;
     }
@@ -240,7 +240,7 @@ static void init_stream(AVFormatContext *fc, demuxer_stream_t *stream,
                         i32 initial_cap) {
   i32 index = find_stream_index(fc, stream->index);
   log_info("mapped stream %s of AVFormatContext %p to %s",
-           si2str(stream->index), fc, si2str(index));
+           si2str(stream->index), (const void *)fc, si2str(index));
   stream->index = index;
 
   if (stream->index < 0) {
@@ -296,7 +296,7 @@ void demuxer_free(demuxer_t *d) {
     packet_msg_t msg;
     while (mpmc_recv(&s->packet_channel, &msg, SVE_DEADLINE_NOW)) {
       if (msg.regular) {
-        log_trace("freeing packet %p", msg.packet);
+        log_trace("freeing packet %p", (const void *)msg.packet);
         av_packet_free(&msg.packet);
       }
     }

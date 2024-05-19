@@ -39,7 +39,6 @@ bool rb_push(rb_t *r, const void *data) {
   }
 
   assert(r->cap > 0);
-  i32 index = (r->first + r->len) % r->cap;
   memcpy(&r->buffer[((r->first + r->len) % r->cap) * r->elem_sizeof], data,
          r->elem_sizeof);
   ++r->len;

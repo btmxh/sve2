@@ -82,10 +82,6 @@ static bool create_watch(filewatch_t *fw, const char *parent,
 
   log_trace("recursively add watch for directory '%s'", path);
   return true;
-
-fail_add_watch:
-  free(path);
-  return false;
 }
 
 filewatch_t *filewatch_init(const char *monitor_dir) {

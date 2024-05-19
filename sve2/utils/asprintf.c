@@ -28,7 +28,7 @@ thread_local bool temp_buffer_in_use = false;
 static char *temp_alloc(i32 size) {
   assert(!temp_buffer_in_use);
   temp_buffer_in_use = true;
-  return size <= sizeof(temp_buffer) ? temp_buffer : sve2_calloc(size, 1);
+  return size <= sve2_sizeof(temp_buffer) ? temp_buffer : sve2_calloc(size, 1);
 }
 
 static void temp_free(char *ptr) {

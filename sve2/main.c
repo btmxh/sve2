@@ -27,6 +27,7 @@ int main(int argc, char *argv[]) {
                                      .num_buffered_packets = 8});
   nassert(streams[0].index == 0);
   nassert(streams[1].index == 1);
+
   sve2_sleep_for(SVE2_NS_PER_SEC);
   demuxer_free(&d);
   avformat_close_input(&fc);
