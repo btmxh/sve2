@@ -1,0 +1,10 @@
+# my preferred building method
+build.sh
+
+# LSP settings
+.clangd
+
+# build directory
+build
+
+
