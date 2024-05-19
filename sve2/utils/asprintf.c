@@ -18,6 +18,7 @@ char *sve2_asprintf(const char *fmt, ...) {
 char *sve2_vasprintf(const char *fmt, va_list vl) {
   char *out;
   vasprintf(&out, fmt, vl);
+  assert(out);
   return out;
 }
 
