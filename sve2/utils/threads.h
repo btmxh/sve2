@@ -2,6 +2,7 @@
 
 #include <threads.h>
 
+#include "sve2/utils/runtime.h"
 #include "sve2/utils/types.h"
 
 // thread timer, used to identify deadlines
@@ -9,6 +10,7 @@ void init_threads_timer();
 i64 threads_timer_now();
 #define SVE2_NS_PER_SEC 1000000000
 
+#define sve2_thrd_create(...) nassert(thrd_create(__VA_ARGS__) == thrd_success)
 #define sve2_mtx_init(m, type) nassert(mtx_init(m, type) == thrd_success)
 #define sve2_mtx_lock(m) nassert(mtx_lock(m) == thrd_success)
 #define sve2_mtx_unlock(m) nassert(mtx_unlock(m) == thrd_success)

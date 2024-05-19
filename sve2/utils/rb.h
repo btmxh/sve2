@@ -9,6 +9,7 @@ typedef struct {
   i32 elem_sizeof;
 } rb_t;
 
+#define SVE2_RB_DEFAULT_GROW ((f32) 1.5)
 #define SVE2_RB_NO_GROW ((f32)-1)
 
 // set grow_factor to SVE2_RB_NO_GROW to disable growing this buffer
