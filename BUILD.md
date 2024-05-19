@@ -1,6 +1,6 @@
 = Build instructions
 
-Requires C11 and dependencies:
+Requires C11 (+ C23 `typeof`) and dependencies:
 - [glfw](https://github.com/glfw/glfw)
 - [glad](https://gen.glad.sh)
     - GLES 3.2+, with extensions GL_OES_EGL_image, GL_OES_EGL_image_external
@@ -8,6 +8,7 @@ Requires C11 and dependencies:
 - [OpenAL](https://www.openal.org) or [OpenAL Soft](https://github.com/kcat/openal-soft)
 - [NanoVG](https://github.com/memononen/nanovg)
 - [ffmpeg](https://ffmpeg.org)
+- [log.c](https://github.com/innerout/log.c)
 
 Define `SVE2_NO_NONSTD` to disable non-standard features
 

@@ -1,0 +1,14 @@
+---
+BasedOnStyle: LLVM
+IndentWidth: 2
+---
+Language: Cpp
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"sve2/' # sve2 headers
+    Priority: 3
+  - Regex: '^<(std|threads.h>|assert.h>|math.h>)' # standard library
+    Priority: 1
+  - Regex: '.*' # external dependencies
+    Priority: 2
+---
