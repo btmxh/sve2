@@ -20,4 +20,7 @@ void *sve2_calloc(i32 nmem, i32 size);
 void *sve2_realloc(void *ptr, i32 new_size);
 
 // see av_freep
-void sve2_freep(void* /* should be T** */ ptr);
+void sve2_freep(void * /* should be T** */ ptr);
+
+#define sve2_sizeof(x) ((i32)sizeof(x))
+#define sve2_offsetof(x, mem) ((i32)offsetof(x, mem))

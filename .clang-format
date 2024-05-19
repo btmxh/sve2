@@ -7,7 +7,7 @@ IncludeBlocks: Regroup
 IncludeCategories:
   - Regex: '^"sve2/' # sve2 headers
     Priority: 3
-  - Regex: '^<(std|threads.h>|assert.h>|math.h>)' # standard library
+  - Regex: '^<(std|threads.h>|assert.h>|math.h>|ctype.h>|string.h>)' # standard library
     Priority: 1
   - Regex: '.*' # external dependencies
     Priority: 2
