@@ -53,7 +53,7 @@ bool rb_pop(rb_t *r, void *data) {
 
   assert(r->cap > 0);
   memcpy(data, &r->buffer[r->first * r->elem_sizeof], r->elem_sizeof);
-  r->first = (r->first + r->cap - 1) % r->cap;
+  r->first = (r->first + 1) % r->cap;
   --r->len;
   return true;
 }
