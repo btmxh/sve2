@@ -12,17 +12,17 @@
 
 void raw_log(const char *fmt, ...) {
   va_list v;
-  va_start(v);
+  va_start(v, fmt);
   fputs("RAW: ", stderr);
   vfprintf(stderr, fmt, v);
   fputc('\n', stderr);
   va_end(v);
 }
 
-void raw_log_panic(const char *fmt, ...) {
+noreturn void raw_log_panic(const char *fmt, ...) {
   va_list v;
-  va_start(v);
-  raw_log(stderr, fmt, v);
+  va_start(v, fmt);
+  fprintf(stderr, fmt, v);
   va_end(v);
   panic();
 }

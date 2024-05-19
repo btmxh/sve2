@@ -2,6 +2,10 @@
 
 #include <stdlib.h>
 
+noreturn void panic() {
+  exit(EXIT_FAILURE);
+}
+
 void *sve2_malloc(i32 size) {
   assert(size >= 0);
   if (size == 0) {

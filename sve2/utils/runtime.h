@@ -1,6 +1,7 @@
 #pragma once
 
 #include <assert.h>
+#include <stdnoreturn.h>
 
 #include "sve2/utils/types.h"
 
@@ -10,7 +11,7 @@
     assert(nassert_value);                                                     \
   } while (0);
 
-void panic();
+noreturn void panic();
 
 // operations that (almost) never fail
 
@@ -24,3 +25,4 @@ void sve2_freep(void * /* should be T** */ ptr);
 
 #define sve2_sizeof(x) ((i32)sizeof(x))
 #define sve2_offsetof(x, mem) ((i32)offsetof(x, mem))
+#define sve2_arrlen(x) (sve2_sizeof(x) / sve2_sizeof(x[0]))
