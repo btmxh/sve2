@@ -2,6 +2,7 @@
 
 #include <threads.h>
 
+#include "sve2/log/logging.h"
 #include "sve2/utils/runtime.h"
 
 static i64 timer = 0;
@@ -19,7 +20,13 @@ void init_threads_timer() {
   }
 }
 
-i64 threads_timer_now() { return get_ts() - timer; }
+i64 threads_timer_now() {
+  if (!timer) {
+    raw_log_panic(
+        "threads timer has not been initialized with init_threads_timer");
+  }
+  return get_ts() - timer;
+}
 
 // timeout API (using deadline)
 #define SVE_DEADLINE_NOW ((i64)-1)

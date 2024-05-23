@@ -10,6 +10,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
 
+#include "sve2/context/context.h"
 #include "sve2/ffmpeg/decoder.h"
 #include "sve2/ffmpeg/demuxer.h"
 #include "sve2/log/logging.h"
@@ -22,6 +23,16 @@ int main(int argc, char *argv[]) {
   }
 
   init_logging();
+  init_threads_timer();
+
+  context_t *c;
+  nassert(c = context_init(&(context_init_t){
+              .mode = CONTEXT_MODE_RENDER,
+              .width = 1920,
+              .height = 1080,
+              .fps = 60,
+          }));
+
   AVFormatContext *fc = open_media(argv[1]);
   assert(fc);
 
@@ -59,7 +70,7 @@ int main(int argc, char *argv[]) {
   AVFrame *decode_frame = av_frame_alloc(), *converted_frame = av_frame_alloc();
   assert(decode_frame && converted_frame);
 
-  for (i32 i = 0; i < 50; ++i) {
+  for (i32 i = 0; i < 5; ++i) {
     decode_result_t err = decoder_decode(&vdec, decode_frame, SVE_DEADLINE_INF);
     if (err == DECODE_EOF) {
       break;
@@ -76,7 +87,7 @@ int main(int argc, char *argv[]) {
                            100));
   }
 
-  for (i32 i = 0; i < 500; ++i) {
+  for (i32 i = 0; i < 5; ++i) {
     decode_result_t err = decoder_decode(&adec, decode_frame, SVE_DEADLINE_INF);
     if (err == DECODE_EOF) {
       break;
@@ -108,6 +119,8 @@ int main(int argc, char *argv[]) {
   decoder_free(&adec);
   demuxer_free(&d);
   avformat_close_input(&fc);
+
+  context_free(c);
 
   return 0;
 }
