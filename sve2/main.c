@@ -3,6 +3,7 @@
 #include <glad/gles2.h>
 #include <libavformat/avformat.h>
 #include <libavutil/frame.h>
+#include <libavutil/pixfmt.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
@@ -49,7 +50,7 @@ int main(int argc, char *argv[]) {
   nassert(streams[1].index == 1);
 
   decoder_t vdec, adec;
-  nassert(decoder_init(&vdec, fc, &streams[0], false));
+  nassert(decoder_init(&vdec, fc, &streams[0], true));
   nassert(decoder_init(&adec, fc, &streams[1], false));
 
   demuxer_cmd_seek(&d, -1, 5 * AV_TIME_BASE, 0);
@@ -57,8 +58,7 @@ int main(int argc, char *argv[]) {
 
   struct SwsContext *sws;
   struct SwrContext *swr;
-
-  sws = sws_getContext(vdec.cc->width, vdec.cc->height, vdec.cc->pix_fmt,
+  sws = sws_getContext(vdec.cc->width, vdec.cc->height, AV_PIX_FMT_NV12,
                        vdec.cc->width, vdec.cc->height, AV_PIX_FMT_RGB24,
                        SWS_FAST_BILINEAR, NULL, NULL, NULL);
   int err =
@@ -67,24 +67,34 @@ int main(int argc, char *argv[]) {
                           adec.cc->sample_fmt, adec.cc->sample_rate, 0, NULL);
   nassert(sws && swr && err >= 0 && swr_init(swr) >= 0);
 
-  AVFrame *decode_frame = av_frame_alloc(), *converted_frame = av_frame_alloc();
+  AVFrame *decode_frame = av_frame_alloc();
+  AVFrame *transfered_frame = av_frame_alloc();
+  AVFrame *converted_frame = av_frame_alloc();
   assert(decode_frame && converted_frame);
 
-  for (i32 i = 0; i < 5; ++i) {
+  for (i32 i = 0; i < 10; ++i) {
     decode_result_t err = decoder_decode(&vdec, decode_frame, SVE_DEADLINE_INF);
     if (err == DECODE_EOF) {
       break;
     }
 
     nassert(err == DECODE_SUCCESS);
-    nassert(sws_scale_frame(sws, converted_frame, decode_frame) >= 0);
+
+    transfered_frame->format = vdec.cc->sw_pix_fmt;
+    nassert(av_hwframe_transfer_data(transfered_frame, decode_frame, 0) >= 0);
+
+    nassert(sws_scale_frame(sws, converted_frame, transfered_frame) >= 0);
     char filename[100];
-    nassert(snprintf(filename, sizeof filename, "frames/%" PRIi32 ".jpg",
+    nassert(snprintf(filename, sizeof filename, "frames/%02" PRIi32 ".jpg",
                      i + 1) >= 0);
     log_debug("writing frame %" PRIi32 " to '%s'", i + 1, filename);
     nassert(stbi_write_jpg(filename, converted_frame->width,
                            converted_frame->height, 3, converted_frame->data[0],
                            100));
+
+    av_frame_unref(decode_frame);
+    av_frame_unref(converted_frame);
+    av_frame_unref(transfered_frame);
   }
 
   for (i32 i = 0; i < 5; ++i) {
@@ -109,9 +119,8 @@ int main(int argc, char *argv[]) {
   free(buffer);
   nassert(!fclose(audio));
 
-  sve2_sleep_for(SVE2_NS_PER_SEC);
-
   av_frame_free(&decode_frame);
+  av_frame_free(&transfered_frame);
   av_frame_free(&converted_frame);
   swr_free(&swr);
   sws_freeContext(sws);
