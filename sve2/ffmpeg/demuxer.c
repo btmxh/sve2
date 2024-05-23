@@ -12,6 +12,7 @@
 #include "sve2/utils/rb.h"
 #include "sve2/utils/runtime.h"
 #include "sve2/utils/threads.h"
+#include "sve2/utils/types.h"
 
 AVFormatContext *open_media(const char *path) {
   AVFormatContext *fc = NULL;
@@ -36,6 +37,69 @@ AVFormatContext *open_media(const char *path) {
   return fc;
 }
 
+typedef enum {
+  VIDEO = (u32)1u << 20,
+  AUDIO = (u32)1u << 21,
+  SUBS = (u32)1u << 22,
+} stream_index_bit_t;
+
+i32 bitfield_index(stream_index_bit_t type, i16 index) {
+  assert(index >= 0);
+  u32 bitfield_index = type | (u32)index;
+  return -(i32)(bitfield_index + 1);
+}
+
+i32 stream_index_video(i16 index) { return bitfield_index(VIDEO, index); }
+i32 stream_index_audio(i16 index) { return bitfield_index(AUDIO, index); }
+i32 stream_index_subs(i16 index) { return bitfield_index(SUBS, index); }
+
+static bool decompose_stream_index(i32 index, enum AVMediaType *type,
+                                   i16 *relative_index) {
+  type = type ? type : &(enum AVMediaType){AVMEDIA_TYPE_UNKNOWN};
+  relative_index = relative_index ? relative_index : &(i16){0};
+
+  if (index >= 0) {
+    *type = AVMEDIA_TYPE_UNKNOWN;
+    *relative_index = index;
+    return index <= (i32)INT16_MAX;
+  }
+
+  u32 bitfield_index = (u32) - (index + 1);
+  if (bitfield_index & VIDEO) {
+    *type = AVMEDIA_TYPE_VIDEO;
+  } else if (bitfield_index & AUDIO) {
+    *type = AVMEDIA_TYPE_AUDIO;
+  } else if (bitfield_index & SUBS) {
+    *type = AVMEDIA_TYPE_SUBTITLE;
+  } else {
+    log_warn("invalid stream bitfield index %x", (unsigned)bitfield_index);
+    return false;
+  }
+
+  i32 rel_index = (i32)(bitfield_index & ~(VIDEO | AUDIO | SUBS));
+  *relative_index = rel_index;
+  return rel_index >= 0 && rel_index <= (i32)INT16_MAX;
+}
+
+char *stream_index_to_string(i32 index, char *str, i32 bufsize) {
+  if (index >= 0) {
+    nassert(snprintf(str, bufsize, ":%" PRIi32, index));
+    return str;
+  }
+
+  enum AVMediaType type;
+  i16 rel_index;
+  if (!decompose_stream_index(index, &type, &rel_index)) {
+    strncpy(str, ":?", bufsize - 1);
+    return str;
+  }
+
+  nassert(type != AVMEDIA_TYPE_UNKNOWN);
+  nassert(snprintf(str, bufsize, "%c:%" PRIi32,
+                   av_get_media_type_string(type)[0], index));
+  return str;
+}
+
 typedef struct {
   // seek args
   i64 seek_offset;
@@ -54,16 +118,26 @@ bool demuxer_handle_cmd(demuxer_t *d, bool *late_packet, bool *error,
   cmd_t cmd;
   while (mpmc_recv(&d->cmd, &cmd, deadline)) {
     if (cmd.exit) {
+      log_info("demuxer thread received exit command");
       return true;
     } else if (cmd.late_packet) {
+      log_info("demuxer thread received late packet command");
       *late_packet = true;
     } else if (cmd.seek) {
+      log_info("demuxer thread received seek command");
       int err = av_seek_frame(d->init.fc, cmd.seek_stream_index,
                               cmd.seek_offset, cmd.seek_flags);
       if (err < 0) {
         *error = true;
         log_warn("unable to seek media: %s", av_err2str(err));
         return true;
+      }
+
+      for (i32 i = 0; i < d->init.num_streams; ++i) {
+        log_trace("sending seek packet message to stream %s",
+                  sve2_si2str(d->init.streams[i].index));
+        nassert(mpmc_send(&d->init.streams[i].packet_channel,
+                          &(packet_msg_t){.seek = true}, SVE_DEADLINE_INF));
       }
     }
   }
@@ -137,7 +211,9 @@ int demuxer_thread(void *u) {
         }
       }
 
-      av_packet_unref(packet);
+      if (packet_stream_index < 0) {
+        av_packet_unref(packet);
+      }
     }
   }
 
@@ -154,85 +230,31 @@ int demuxer_thread(void *u) {
   return 0;
 }
 
-typedef enum {
-  VIDEO = (u32)1u << 20,
-  AUDIO = (u32)1u << 21,
-  SUBS = (u32)1u << 22,
-} stream_index_bit_t;
-
-i32 bitfield_index(stream_index_bit_t type, i16 index) {
-  assert(index >= 0);
-  u32 bitfield_index = type | (u32)index;
-  return -(i32)(bitfield_index + 1);
-}
-
-i32 stream_index_video(i16 index) { return bitfield_index(VIDEO, index); }
-i32 stream_index_audio(i16 index) { return bitfield_index(AUDIO, index); }
-i32 stream_index_subs(i16 index) { return bitfield_index(SUBS, index); }
-
-#define STREAM_INDEX_STRING_MAX_LENGTH 8 /* including \0 */
-static char *stream_index_to_string(i32 index,
-                                    char str[STREAM_INDEX_STRING_MAX_LENGTH]) {
-  if (index >= 0) {
-    nassert(snprintf(str, STREAM_INDEX_STRING_MAX_LENGTH, ":%" PRIi32, index));
-    return str;
-  }
-
-  u32 bitfield_index = (u32) - (index + 1);
-  enum AVMediaType media_type = AVMEDIA_TYPE_UNKNOWN;
-  if (bitfield_index & VIDEO) {
-    media_type = AVMEDIA_TYPE_VIDEO;
-  } else if (bitfield_index & AUDIO) {
-    media_type = AVMEDIA_TYPE_AUDIO;
-  } else if (bitfield_index & SUBS) {
-    media_type = AVMEDIA_TYPE_SUBTITLE;
-  } else {
-    log_warn("invalid stream bitfield index %x", (unsigned)bitfield_index);
-    assert(false);
-  }
-
-  index = (i32)(bitfield_index & ~(VIDEO | AUDIO | SUBS));
-  nassert(snprintf(str, STREAM_INDEX_STRING_MAX_LENGTH, "%c:%" PRIi32,
-                   av_get_media_type_string(media_type)[0], index));
-  return str;
-}
-
-#define si2str(index)                                                          \
-  stream_index_to_string(index, (char[STREAM_INDEX_STRING_MAX_LENGTH]){0})
-
 static i32 find_stream_index(AVFormatContext *fc, i32 index) {
   if (index >= 0) {
     return index < (i32)fc->nb_streams ? index : -1;
   }
 
-  u32 bitfield_index = (u32) - (index + 1);
-  enum AVMediaType media_type = AVMEDIA_TYPE_UNKNOWN;
-  if (bitfield_index & VIDEO) {
-    media_type = AVMEDIA_TYPE_VIDEO;
-  } else if (bitfield_index & AUDIO) {
-    media_type = AVMEDIA_TYPE_AUDIO;
-  } else if (bitfield_index & SUBS) {
-    media_type = AVMEDIA_TYPE_SUBTITLE;
-  } else {
-    log_warn("invalid stream bitfield index %x", (unsigned)bitfield_index);
+  enum AVMediaType type;
+  i16 rel_index;
+  if (!decompose_stream_index(index, &type, &rel_index)) {
     return -1;
   }
 
-  index = (i32)(bitfield_index & ~(VIDEO | AUDIO | SUBS));
   i32 counter = 0;
   for (i32 i = 0; i < (i32)fc->nb_streams; ++i) {
-    if (fc->streams[i]->codecpar->codec_type != media_type) {
+    if (fc->streams[i]->codecpar->codec_type != type) {
       continue;
     }
 
-    if (index == counter++) {
+    if (rel_index == counter++) {
       return i;
     }
   }
 
   log_warn("media file only has %" PRIi32
-           " %s streams, requested stream of index %" PRIi32,
-           counter, av_get_media_type_string(media_type), index);
+           " %s streams, requested stream of index %" PRIi16,
+           counter, av_get_media_type_string(type), index);
   return -1;
 }
 
@@ -240,7 +262,7 @@ static void init_stream(AVFormatContext *fc, demuxer_stream_t *stream,
                         i32 initial_cap) {
   i32 index = find_stream_index(fc, stream->index);
   log_info("mapped stream %s of AVFormatContext %p to %s",
-           si2str(stream->index), (const void *)fc, si2str(index));
+           sve2_si2str(stream->index), (const void *)fc, sve2_si2str(index));
   stream->index = index;
 
   if (stream->index < 0) {

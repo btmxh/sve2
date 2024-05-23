@@ -38,6 +38,12 @@ i32 stream_index_video(i16 index);
 i32 stream_index_audio(i16 index);
 i32 stream_index_subs(i16 index);
 
+#define STREAM_INDEX_STRING_MAX_LENGTH 16 // including \0
+char *stream_index_to_string(i32 index, char *str, i32 bufsize);
+#define sve2_si2str(index)                                                     \
+  stream_index_to_string(index, (char[STREAM_INDEX_STRING_MAX_LENGTH]){0},     \
+                         STREAM_INDEX_STRING_MAX_LENGTH)
+
 void demuxer_init(demuxer_t *d, const demuxer_init_t *info);
 void demuxer_cmd_exit(demuxer_t *d);
 void demuxer_cmd_late_packet(demuxer_t *d);
