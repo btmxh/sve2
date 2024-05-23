@@ -112,7 +112,8 @@ typedef struct {
 
 // return true if exit cmd received
 bool demuxer_handle_cmd(demuxer_t *d, bool *late_packet, bool *error,
-                        i64 timeout) {
+                        i64 timeout, AVPacket **packet,
+                        i32 *packet_stream_index) {
   i64 deadline =
       timeout == 0 ? SVE_DEADLINE_NOW : (threads_timer_now() + timeout);
   cmd_t cmd;
@@ -132,6 +133,9 @@ bool demuxer_handle_cmd(demuxer_t *d, bool *late_packet, bool *error,
         log_warn("unable to seek media: %s", av_err2str(err));
         return true;
       }
+
+      av_packet_free(packet);
+      *packet_stream_index = -1;
 
       for (i32 i = 0; i < d->init.num_streams; ++i) {
         log_trace("sending seek packet message to stream %s",
@@ -171,7 +175,8 @@ int demuxer_thread(void *u) {
   AVPacket *packet = NULL;
   i32 packet_stream_index = -1;
 
-  while (!demuxer_handle_cmd(d, &late_packet, &error, timeout)) {
+  while (!demuxer_handle_cmd(d, &late_packet, &error, timeout, &packet,
+                             &packet_stream_index)) {
     if (packet_stream_index >= 0) {
       if (!late_packet && !demuxer_should_send(d)) {
         timeout = 10 * SVE2_NS_PER_SEC / 1000; // 10ms
