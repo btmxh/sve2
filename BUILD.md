@@ -1,6 +1,6 @@
 = Build instructions
 
-Requires C11 (+ C23 `typeof`) and dependencies:
+Requires C11 (+ some C23 features) and dependencies:
 - [glfw](https://github.com/glfw/glfw)
 - [glad](https://gen.glad.sh)
     - GLES 3.2+, with extensions GL_OES_EGL_image, GL_OES_EGL_image_external

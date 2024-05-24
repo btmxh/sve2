@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
 
   context_t *c;
   nassert(c = context_init(&(context_init_t){
-              .mode = CONTEXT_MODE_RENDER,
+              .mode = CONTEXT_MODE_PREVIEW,
               .width = 1920,
               .height = 1080,
               .fps = 60,
@@ -80,17 +80,12 @@ int main(int argc, char *argv[]) {
 
     nassert(err == DECODE_SUCCESS);
 
-    transfered_frame->format = vdec.cc->sw_pix_fmt;
-    nassert(av_hwframe_transfer_data(transfered_frame, decode_frame, 0) >= 0);
-
+    decode_texture_t texture = decoder_blank_texture();
+    decoder_map_texture(&vdec, decode_frame, transfered_frame, &texture);
     nassert(sws_scale_frame(sws, converted_frame, transfered_frame) >= 0);
-    char filename[100];
-    nassert(snprintf(filename, sizeof filename, "frames/%02" PRIi32 ".jpg",
-                     i + 1) >= 0);
-    log_debug("writing frame %" PRIi32 " to '%s'", i + 1, filename);
-    nassert(stbi_write_jpg(filename, converted_frame->width,
-                           converted_frame->height, 3, converted_frame->data[0],
-                           100));
+
+    context_begin_frame(c);
+    context_end_frame(c);
 
     av_frame_unref(decode_frame);
     av_frame_unref(converted_frame);
