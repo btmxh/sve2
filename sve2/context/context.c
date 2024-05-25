@@ -135,15 +135,12 @@ context_t *context_init(const context_init_t *info) {
   glfwWindowHint(GLFW_VISIBLE, info->mode == CONTEXT_MODE_PREVIEW);
   // we require EGL + OpenGL ES for VAAPI integration extensions
   glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
-  glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
   glfwWindowHint(GLFW_CONTEXT_DEBUG, GLFW_TRUE);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
   nassert((c->window = glfwCreateWindow(info->width, info->height,
                                         "sve2 window", NULL, NULL)));
   glfwMakeContextCurrent(c->window);
   glfwSetWindowUserPointer(c->window, c);
-  nassert(gladLoadGLES2(glfwGetProcAddress));
+  nassert(gladLoadGL(glfwGetProcAddress));
   nassert(gladLoadEGL(glfwGetEGLDisplay(), glfwGetProcAddress));
 
   glEnable(GL_DEBUG_OUTPUT);

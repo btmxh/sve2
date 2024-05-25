@@ -13,8 +13,8 @@ To build this project, use your favorite compiler to build ALL `*.c` files in th
 The project requires C11 (+ some C23 features) and dependencies:
 - [glfw](https://github.com/glfw/glfw)
 - [glad](https://gen.glad.sh)
-    - GLES 3.2+, with extensions GL_OES_EGL_image, GL_OES_EGL_image_external
-    - EGL=1.5+ with extensions EGL_EXT_image_dma_buf_import, EGL_KHR_image_base, EGL_MESA_image_dma_buf_export
+    - GL=4.3+, with extensions GL_EXT_EGL_image_storage
+    - EGL=1.5+ with extensions EGL_EXT_image_dma_buf_import, EGL_KHR_image_base
 - [OpenAL](https://www.openal.org) or [OpenAL Soft](https://github.com/kcat/openal-soft)
 - [NanoVG](https://github.com/memononen/nanovg)
 - [ffmpeg](https://ffmpeg.org)

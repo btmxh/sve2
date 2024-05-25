@@ -1,7 +1,6 @@
 #include <assert.h>
 
-#include <GLFW/glfw3.h>
-#include <glad/gles2.h>
+#include <glad/gl.h>
 #include <libavformat/avformat.h>
 #include <libavutil/frame.h>
 #include <libavutil/pixdesc.h>
@@ -11,14 +10,16 @@
 #include <libswscale/swscale.h>
 #include <log.h>
 
-#include "sve2/gl/shader.h"
-
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
+
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 
 #include "sve2/context/context.h"
 #include "sve2/ffmpeg/decoder.h"
 #include "sve2/ffmpeg/demuxer.h"
+#include "sve2/gl/shader.h"
 #include "sve2/log/logging.h"
 #include "sve2/utils/runtime.h"
 #include "sve2/utils/threads.h"

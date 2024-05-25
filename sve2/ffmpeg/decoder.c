@@ -4,7 +4,7 @@
 #include <stdbit.h>
 
 #include <glad/egl.h>
-#include <glad/gles2.h>
+#include <glad/gl.h>
 #include <libavcodec/avcodec.h>
 #include <libavcodec/packet.h>
 #include <libavutil/common.h>
@@ -189,7 +189,7 @@ static void map_nv12(AVFrame *frame, enum AVPixelFormat format,
                  eglGetCurrentDisplay(), EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT,
                  NULL, attrs)) != EGL_NO_IMAGE);
     glBindTexture(GL_TEXTURE_2D, texture->textures[i]);
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, texture->images[i]);
+    glEGLImageTargetTexStorageEXT(GL_TEXTURE_2D, texture->images[i], NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);

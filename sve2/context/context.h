@@ -1,6 +1,6 @@
 #pragma once
 
-#include <glad/gles2.h>
+#include <glad/gl.h>
 
 #include "sve2/gl/shader.h"
 #include "sve2/utils/types.h"

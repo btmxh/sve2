@@ -1,7 +1,7 @@
 #pragma once
 
 #include <glad/egl.h>
-#include <glad/gles2.h>
+#include <glad/gl.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_drm.h>
