@@ -1,12 +1,17 @@
 #include <assert.h>
 
+#include <GLFW/glfw3.h>
 #include <glad/gles2.h>
 #include <libavformat/avformat.h>
 #include <libavutil/frame.h>
+#include <libavutil/pixdesc.h>
 #include <libavutil/pixfmt.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
+#include <log.h>
+
+#include "sve2/gl/shader.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
@@ -34,6 +39,9 @@ int main(int argc, char *argv[]) {
               .fps = 60,
           }));
 
+  shader_t *shader = shader_new_vf(c, "y_uv.vert.glsl", "y_uv.frag.glsl");
+  i32 shader_version = -1;
+
   AVFormatContext *fc = open_media(argv[1]);
   assert(fc);
 
@@ -55,6 +63,7 @@ int main(int argc, char *argv[]) {
 
   demuxer_cmd_seek(&d, -1, 5 * AV_TIME_BASE, 0);
   sve2_sleep_for(SVE2_NS_PER_SEC / 10);
+  glfwSwapInterval(0);
 
   struct SwsContext *sws;
   struct SwrContext *swr;
@@ -69,10 +78,11 @@ int main(int argc, char *argv[]) {
 
   AVFrame *decode_frame = av_frame_alloc();
   AVFrame *transfered_frame = av_frame_alloc();
-  AVFrame *converted_frame = av_frame_alloc();
-  assert(decode_frame && converted_frame);
+  assert(decode_frame && transfered_frame);
 
-  for (i32 i = 0; i < 10; ++i) {
+  i64 start = threads_timer_now() - 5 * SVE2_NS_PER_SEC;
+
+  for (i32 i = 0; i < 100000; ++i) {
     decode_result_t err = decoder_decode(&vdec, decode_frame, SVE_DEADLINE_INF);
     if (err == DECODE_EOF) {
       break;
@@ -82,41 +92,41 @@ int main(int argc, char *argv[]) {
 
     decode_texture_t texture = decoder_blank_texture();
     decoder_map_texture(&vdec, decode_frame, transfered_frame, &texture);
-    nassert(sws_scale_frame(sws, converted_frame, transfered_frame) >= 0);
 
+    i64 deadline = start + decode_frame->pts * fc->streams[0]->time_base.num *
+                               SVE2_NS_PER_SEC / fc->streams[0]->time_base.den;
+    /* sve2_sleep_until(deadline); */
     context_begin_frame(c);
+
+    i32 width, height;
+    context_get_framebuffer_info(c, &width, &height, NULL, NULL);
+    glViewport(0, 0, width, height);
+
+    i32 version = shader_use(shader);
+    const AVPixFmtDescriptor *format_desc = av_pix_fmt_desc_get(texture.format);
+    if (version >= 0) {
+      for (i32 i = 0; i < sve2_arrlen(texture.textures); ++i) {
+        if (!texture.textures[i]) {
+          continue;
+        }
+        glActiveTexture(GL_TEXTURE0 + i);
+        glBindTexture(GL_TEXTURE_2D, texture.textures[i]);
+        log_trace("binding texture %u to bind slot %" PRIi32,
+                  texture.textures[i], i);
+      }
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+      shader_version = version;
+    }
+
+    decoder_unmap_texture(&texture);
     context_end_frame(c);
 
     av_frame_unref(decode_frame);
-    av_frame_unref(converted_frame);
     av_frame_unref(transfered_frame);
   }
 
-  for (i32 i = 0; i < 5; ++i) {
-    decode_result_t err = decoder_decode(&adec, decode_frame, SVE_DEADLINE_INF);
-    if (err == DECODE_EOF) {
-      break;
-    }
-
-    nassert(err == DECODE_SUCCESS);
-    nassert(swr_convert(swr, NULL, 0, (const u8 **)decode_frame->data,
-                        decode_frame->nb_samples) >= 0);
-  }
-
-  FILE *audio = fopen("audio.pcm", "w");
-  i32 num_samples = swr_get_out_samples(swr, 0);
-  u8 *buffer =
-      sve2_calloc(num_samples * 2, av_get_bytes_per_sample(AV_SAMPLE_FMT_S16));
-  nassert((num_samples = swr_convert(swr, &buffer, num_samples, NULL, 0)) >= 0);
-  fwrite(buffer, av_get_bytes_per_sample(AV_SAMPLE_FMT_S16), num_samples * 2,
-         audio);
-  nassert(!ferror(audio));
-  free(buffer);
-  nassert(!fclose(audio));
-
   av_frame_free(&decode_frame);
   av_frame_free(&transfered_frame);
-  av_frame_free(&converted_frame);
   swr_free(&swr);
   sws_freeContext(sws);
   decoder_free(&vdec);

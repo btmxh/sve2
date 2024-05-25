@@ -9,6 +9,7 @@ Requires C11 (+ some C23 features) and dependencies:
 - [NanoVG](https://github.com/memononen/nanovg)
 - [ffmpeg](https://ffmpeg.org)
 - [log.c](https://github.com/innerout/log.c)
+- [arena](https://github.com/tsoding/arena)
 
 Define `SVE2_NO_NONSTD` to disable non-standard features
 

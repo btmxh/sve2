@@ -129,14 +129,15 @@ static void map_nv12(AVFrame *frame, enum AVPixelFormat format,
   const AVPixFmtDescriptor *pix_fmt = av_pix_fmt_desc_get(format);
   log_trace("mapping texture with pixel format %s (aka %s)",
             av_get_pix_fmt_name(format), pix_fmt->alias);
+  texture->format = format;
 
   bool rgb = pix_fmt->flags & AV_PIX_FMT_FLAG_RGB;
 
   // endianness mismatch check
 #ifdef __STDC_ENDIAN_LITTLE__
-  nassert(!(format & AV_PIX_FMT_FLAG_BE));
+  nassert(!(pix_fmt->flags & AV_PIX_FMT_FLAG_BE));
 #elif defined(__STDC_ENDIAN_BIG__)
-  nassert(format & AV_PIX_FMT_FLAG_BE);
+  nassert(pix_fmt->flags & AV_PIX_FMT_FLAG_BE);
 #endif
 
   const AVDRMFrameDescriptor *desc =
@@ -169,7 +170,7 @@ static void map_nv12(AVFrame *frame, enum AVPixelFormat format,
     nassert(layer->nb_planes <= AV_DRM_MAX_PLANES);
     EGLAttrib attrs[7 + AV_DRM_MAX_PLANES * 6];
     attrs[attr_index++] = EGL_LINUX_DRM_FOURCC_EXT;
-    attrs[attr_index++] = desc->layers[i].format;
+    attrs[attr_index++] = layer->format;
     attrs[attr_index++] = EGL_WIDTH;
     attrs[attr_index++] = AV_CEIL_RSHIFT(frame->width, w_shift);
     attrs[attr_index++] = EGL_HEIGHT;

@@ -6,6 +6,8 @@
 #include <glad/egl.h>
 #include <log.h>
 
+#include "sve2/gl/shader.h"
+
 #define GLFW_EXPOSE_NATIVE_EGL
 #include <GLFW/glfw3native.h>
 
@@ -15,6 +17,7 @@
 struct context_t {
   context_init_t info;
   GLFWwindow *window;
+  shader_manager_t sman;
   i32 frame_num;
   f32 xscale, yscale;
   void *user_ptr;
@@ -155,10 +158,13 @@ context_t *context_init(const context_init_t *info) {
   glfwSetFramebufferSizeCallback(c->window, glfw_framebuffer_callback);
   glfwSetWindowContentScaleCallback(c->window, glfw_content_scale_callback);
 
+  shader_manager_init(&c->sman, "shaders/out");
+
   return c;
 }
 
 void context_free(context_t *c) {
+  shader_manager_free(&c->sman);
   free(c);
   glfwTerminate(); // free all windowing + OpenGL stuff,
                    // no need to manually free every resource
@@ -196,6 +202,7 @@ void context_get_framebuffer_info(context_t *c, i32 *w, i32 *h, f32 *xscale,
 void context_begin_frame(context_t *c) {
   glfwPollEvents();
   log_debug("frame %" PRIi32 " started", c->frame_num);
+  shader_manager_update(&c->sman);
 }
 
 void context_end_frame(context_t *c) {
@@ -216,6 +223,10 @@ void *context_get_user_pointer(GLFWwindow *window) {
 
 context_t *context_get_from_window(GLFWwindow *window) {
   return glfwGetWindowUserPointer(window);
+}
+
+shader_manager_t *context_get_shader_manager(context_t *c) {
+  return &c->sman;
 }
 
 void context_set_key_callback(context_t *c, GLFWkeyfun key) {

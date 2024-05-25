@@ -2,6 +2,7 @@
 
 #include <glad/gles2.h>
 
+#include "sve2/gl/shader.h"
 #include "sve2/utils/types.h"
 
 #define GLFW_INCLUDE_NONE
@@ -36,5 +37,6 @@ GLuint context_default_framebuffer(context_t *c);
 void context_set_user_pointer(context_t *c, void *u);
 void *context_get_user_pointer(GLFWwindow *window);
 context_t *context_get_from_window(GLFWwindow *window);
+shader_manager_t *context_get_shader_manager(context_t *c);
 
 void context_set_key_callback(context_t *c, GLFWkeyfun key);
