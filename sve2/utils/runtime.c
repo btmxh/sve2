@@ -32,7 +32,7 @@ void *sve2_realloc(void *ptr, i32 new_size) {
     free(ptr);
     return NULL;
   }
-  ptr = malloc((size_t)new_size);
+  ptr = realloc(ptr, (size_t)new_size);
   assert(ptr);
   return ptr;
 }

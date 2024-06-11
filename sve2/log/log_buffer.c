@@ -6,6 +6,7 @@
 #include <log.h>
 
 #include "sve2/utils/minmax.h"
+#include "sve2/utils/runtime.h"
 #include "sve2/utils/threads.h"
 
 void log_buffer_init(log_buffer *l) {
@@ -19,8 +20,8 @@ static void log_buffer_grow(log_buffer *l, i32 new_cap) {
     return;
   }
 
-  new_cap = sve2_max_i32(new_cap, l->msg_cap * 2);
-  l->msg = sve2_realloc(l->msg, new_cap);
+  l->msg_cap = sve2_max_i32(new_cap, l->msg_cap * 2);
+  l->msg = sve2_realloc(l->msg, l->msg_cap);
 }
 
 static bool log_buffer_flush(log_buffer *l, int level, const char *file,
@@ -53,4 +54,9 @@ void log_buffer_log(log_buffer *l, i32 level, const char *file, i32 line,
   }
 
   sve2_mtx_unlock(&l->mutex);
+}
+
+void log_buffer_free(log_buffer *l) {
+  mtx_destroy(&l->mutex);
+  sve2_freep(&l->msg);
 }

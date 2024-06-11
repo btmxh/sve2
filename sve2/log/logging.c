@@ -83,3 +83,7 @@ void init_logging() {
   av_log_set_level(AV_LOG_TRACE);
   av_log_set_callback(av_log_callback);
 }
+
+void done_logging() {
+  log_buffer_free(&ffmpeg_buffer);
+}

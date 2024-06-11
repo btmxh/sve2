@@ -14,3 +14,4 @@ typedef struct {
 void log_buffer_init(log_buffer *l);
 void log_buffer_log(log_buffer *l, i32 level, const char *file, i32 line,
                     const char *fmt, va_list va);
+void log_buffer_free(log_buffer *l);
