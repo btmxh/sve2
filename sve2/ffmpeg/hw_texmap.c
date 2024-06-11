@@ -149,11 +149,13 @@ static void gl_to_drm_prime(hw_texture_t *texture, AVFrame *prime) {
   frame->layers[1].nb_planes = 1;
   frame->layers[1].format = DRM_FORMAT_RG88;
   frame->layers[1].planes[0].object_index = 0;
+  i32 uv_offset_y = (i32)(((u32)prime->height + 63u) & ~63u);
   frame->layers[1].planes[0].offset =
-      frame->layers[0].planes[0].pitch * prime->height;
+      frame->layers[0].planes[0].pitch * uv_offset_y;
   frame->objects[0].size =
-      frame->layers[0].planes[0].pitch * prime->height * 3 / 2;
-  frame->layers[1].planes[0].pitch = frame->layers[0].planes[1].pitch;
+      frame->layers[0].planes[0].pitch *
+      (prime->height / 2 + frame->layers[1].planes[0].offset);
+  frame->layers[1].planes[0].pitch = frame->layers[0].planes[0].pitch;
   ++frame->nb_layers;
 
   prime->data[0] = (u8 *)frame;
@@ -219,5 +221,20 @@ void hw_texmap_unmap(hw_texture_t *texture, bool unmap_gl_textures) {
     }
 
     texture->vaapi_fds[i] = -1;
+  }
+}
+
+static i32 round_up_to_multiple_of(i32 x, i32 po2) {
+  return (i32)((u32)(x + po2 - 1) & ~(u32)(po2 - 1));
+}
+
+// this is how stuff is aligned on intel GPUs
+// https://github.com/intel/hwc/blob/master/lib/ufo/graphics.h
+void hw_align_size(i32 *width, i32 *height) {
+  if (width) {
+    *width = round_up_to_multiple_of(*width, 128);
+  }
+  if (height) {
+    *height = round_up_to_multiple_of(*height, 64);
   }
 }

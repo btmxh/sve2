@@ -40,3 +40,5 @@ hw_texture_t hw_texture_from_gl(enum AVPixelFormat format, i32 num_textures,
 void hw_texmap_to_gl(const AVFrame *src, AVFrame *prime, hw_texture_t *texture);
 void hw_texmap_from_gl(hw_texture_t *texture, AVFrame *prime, AVFrame *dst);
 void hw_texmap_unmap(hw_texture_t *texture, bool unmap_gl_textures);
+void hw_align_size(i32* width, i32* height);
+

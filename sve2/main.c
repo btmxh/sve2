@@ -110,8 +110,12 @@ int main(int argc, char *argv[]) {
   glNamedFramebufferTexture(fbo, GL_COLOR_ATTACHMENT0, fbo_color_attachment, 0);
   nassert(glCheckNamedFramebufferStatus(fbo, GL_FRAMEBUFFER) ==
           GL_FRAMEBUFFER_COMPLETE);
+  i32 uv_offset_y = fbo_height;
+  hw_align_size(NULL, &uv_offset_y);
+  assert(uv_offset_y == 1088);
+  i32 nv12_width = fbo_width, nv12_height = uv_offset_y + fbo_height / 2;
   glCreateTextures(GL_TEXTURE_2D, 1, &nv12_texture);
-  glTextureStorage2D(nv12_texture, 1, GL_R8, fbo_width, fbo_height * 3 / 2);
+  glTextureStorage2D(nv12_texture, 1, GL_R8, nv12_width, nv12_height);
   glTextureParameteri(nv12_texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTextureParameteri(nv12_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -157,18 +161,24 @@ int main(int argc, char *argv[]) {
     av_frame_unref(transfered_frame);
 
     nassert(shader_use(encode_shader) >= 0);
+    glUniform1i(0, uv_offset_y);
     glBindImageTexture(0, fbo_color_attachment, 0, GL_FALSE, 0, GL_READ_ONLY,
                        GL_RGBA32F);
     glBindImageTexture(1, nv12_texture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R8);
     glDispatchCompute(fbo_width / 2, fbo_height / 2, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    /* char *img = sve2_malloc(nv12_width * nv12_height); */
+    /* glGetTextureImage(nv12_texture, 0, GL_RED, GL_UNSIGNED_BYTE, */
+    /*                   nv12_width * nv12_height, img); */
 
     /* char *y = sve2_malloc(fbo_width * fbo_height), */
     /*      *uv = sve2_malloc(fbo_width * fbo_height / 2); */
     /* glPixelStorei(GL_UNPACK_ALIGNMENT, 1); */
     /* glPixelStorei(GL_PACK_ALIGNMENT, 1); */
-    /* glGetTextureSubImage(nv12_texture, 0, 0, 0, 0, fbo_width, fbo_height, 1, */
-    /*                      GL_RED, GL_UNSIGNED_BYTE, fbo_width * fbo_height, y); */
+    /* glGetTextureSubImage(nv12_texture, 0, 0, 0, 0, fbo_width, fbo_height, 1,
+     */
+    /*                      GL_RED, GL_UNSIGNED_BYTE, fbo_width * fbo_height,
+     * y); */
     /* glGetTextureSubImage(nv12_texture, 0, 0, fbo_height, 0, fbo_width, */
     /*                      fbo_height / 2, 1, GL_RED, GL_UNSIGNED_BYTE, */
     /*                      fbo_width * fbo_height, uv); */
@@ -177,7 +187,10 @@ int main(int argc, char *argv[]) {
     /*   uv[j * 2 + 1] = -1; */
     /* } */
     /* char filename[32]; */
-    /* nassert(snprintf(filename, sizeof filename, "frames/y_%02d.png", i) >= 0); */
+    /* nassert(snprintf(filename, sizeof filename, "frames/y_%02d.png", i) >=
+     * 0); */
+    /* stbi_write_png(filename, nv12_width, nv12_height, 1, img, fbo_width); */
+    /* free(img); */
     /* FILE* f = fopen("frames/yuv_%02d.raw", "w"); */
     /* fwrite(y, 1, fbo_width * fbo_height, f); */
     /* fwrite(uv, 1, fbo_width * fbo_height / 2, f); */
