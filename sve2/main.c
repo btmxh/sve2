@@ -45,8 +45,6 @@ int main(int argc, char *argv[]) {
 
   AVFormatContext *fc = open_media(argv[1]);
   assert(fc);
-  avformat_close_input(&fc);
-  return 0;
 
   demuxer_t d;
   demuxer_stream_t streams[] = {
