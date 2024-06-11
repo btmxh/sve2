@@ -32,7 +32,7 @@ AVFormatContext *open_media(const char *path) {
     return NULL;
   }
 
-  /* av_dump_format(fc, 0, path, NULL); */
+  av_dump_format(fc, 0, path, false);
 
   return fc;
 }
