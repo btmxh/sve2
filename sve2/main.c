@@ -83,7 +83,7 @@ int main(int argc, char *argv[]) {
 
   i64 start = threads_timer_now() - 5 * SVE2_NS_PER_SEC;
 
-  for (i32 i = 0; i < 100000; ++i) {
+  for (i32 i = 0; i < 100; ++i) {
     decode_result_t err = decoder_decode(&vdec, decode_frame, SVE_DEADLINE_INF);
     if (err == DECODE_EOF) {
       break;

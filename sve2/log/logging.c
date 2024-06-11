@@ -3,10 +3,11 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <threads.h>
 
 #include <libavutil/log.h>
 
-#include "sve2/utils/asprintf.h"
+#include "sve2/log/log_buffer.h"
 #include "sve2/utils/runtime.h"
 #include "sve2/utils/threads.h"
 
@@ -38,28 +39,9 @@ static void lock_fn(bool lock, void *udata) {
   }
 }
 
-char small_buffer[256];
+log_buffer ffmpeg_buffer;
 
-char *alloc_log_msg(i32 length) {
-  return length < sve2_sizeof(small_buffer) ? small_buffer
-                                            : sve2_malloc(length);
-}
-
-void free_log_msg(char *msg) {
-  if (msg != small_buffer) {
-    free(msg);
-  }
-}
-
-void trim_tail_log_msg(char *msg, i32 len) {
-  for (i32 i = len - 1; i >= 0; --i) {
-    if (!isspace(msg[i])) {
-      return;
-    }
-
-    msg[i] = '\0';
-  }
-}
+static void init_ffmpeg_log_buffer() { log_buffer_init(&ffmpeg_buffer); }
 
 static void av_log_callback(void *avcl, int level, const char *fmt,
                             va_list vl) {
@@ -90,16 +72,18 @@ static void av_log_callback(void *avcl, int level, const char *fmt,
     break;
   }
 
-  char *msg = sve2_vasprintf_temp(fmt, vl);
-  trim_tail_log_msg(msg, strlen(msg));
-  log_log(level, __FILE__, __LINE__, "%s", msg);
-  sve2_asprintf_temp_free(msg);
+  log_buffer_log(&ffmpeg_buffer, level, __FILE__, __LINE__, fmt, vl);
 }
 
 void init_logging() {
   sve2_mtx_init(&log_mtx, mtx_plain);
   log_set_lock(lock_fn, NULL);
   log_set_level(LOG_TRACE);
-  av_log_set_level(AV_LOG_INFO);
+  init_ffmpeg_log_buffer();
+  av_log_set_level(AV_LOG_TRACE);
   av_log_set_callback(av_log_callback);
+}
+
+void done_logging() {
+  log_buffer_free(&ffmpeg_buffer);
 }
