@@ -61,6 +61,9 @@ void trim_tail_log_msg(char *msg, i32 len) {
   }
 }
 
+char* ffmpeg_msg = NULL;
+int ffmpeg_msg_len = 0, ffmpeg_msg_cap = 0;
+
 static void av_log_callback(void *avcl, int level, const char *fmt,
                             va_list vl) {
   if (level > av_log_get_level()) {
@@ -100,6 +103,6 @@ void init_logging() {
   sve2_mtx_init(&log_mtx, mtx_plain);
   log_set_lock(lock_fn, NULL);
   log_set_level(LOG_TRACE);
-  av_log_set_level(AV_LOG_INFO);
+  av_log_set_level(AV_LOG_DEBUG);
   av_log_set_callback(av_log_callback);
 }

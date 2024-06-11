@@ -38,8 +38,7 @@ void shader_manager_update(shader_manager_t *sm);
 void shader_manager_free(shader_manager_t *sm);
 
 shader_t *shader_new(context_t *c, GLenum shader_types[],
-                     const char *shader_paths[],
-                     i32 num_shaders);
+                     const char *shader_paths[], i32 num_shaders);
 // since shaders are managed by the context shader manager, freeing the context
 // (and therefore the shader manager) will also free this shader
 void shader_free(shader_t *s);
@@ -76,3 +75,6 @@ i32 shader_use(shader_t *s);
 #define shader_new_vf(c, vpath, fpath)                                         \
   shader_new(c, (GLenum[]){GL_VERTEX_SHADER, GL_FRAGMENT_SHADER},              \
              (const char *[]){vpath, fpath}, 2)
+// utility function for compute shaders
+#define shader_new_c(c, cpath)                                                 \
+  shader_new(c, (GLenum[]){GL_COMPUTE_SHADER}, (const char *[]){cpath}, 1)

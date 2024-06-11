@@ -72,7 +72,10 @@ shader_t *shader_new(context_t *c, GLenum shader_types[],
   // this shader become the new head of the shader linked list
   shader->prev = NULL;
   shader->next = sm->head;
-  *(sm->head ? &sm->head->next : &sm->head) = shader;
+  if (sm->head) {
+    sm->head->prev = shader;
+  }
+  sm->head = shader;
   return shader;
 }
 
@@ -80,7 +83,7 @@ void shader_free(shader_t *s) {
   // clang-format off
   if(s->prev) s->prev->next = s->next;
   if(s->next) s->next->prev = s->prev;
-  if(s->manager->head == s) s->manager->head = NULL;
+  if(s->manager->head == s) s->manager->head = s->next;
   // clang-format on
 
   for (i32 i = 0; i < s->num_shaders; ++i) {

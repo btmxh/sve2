@@ -11,6 +11,15 @@
     assert(nassert_value);                                                     \
   } while (0);
 
+#define nassert_ffmpeg(x)                                                      \
+  do {                                                                         \
+    int nassert_value = x;                                                     \
+    if (nassert_value < 0) {                                                   \
+      log_error("FFmpeg error: %s", av_err2str(nassert_value));                \
+    }                                                                          \
+    assert(nassert_value >= 0);                                                \
+  } while (0);
+
 noreturn void panic();
 
 // operations that (almost) never fail

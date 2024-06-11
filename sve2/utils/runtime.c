@@ -2,9 +2,7 @@
 
 #include <stdlib.h>
 
-noreturn void panic() {
-  exit(EXIT_FAILURE);
-}
+noreturn void panic() { exit(EXIT_FAILURE); }
 
 void *sve2_malloc(i32 size) {
   assert(size >= 0);
@@ -32,7 +30,7 @@ void *sve2_realloc(void *ptr, i32 new_size) {
     free(ptr);
     return NULL;
   }
-  ptr = malloc((size_t)new_size);
+  ptr = realloc(ptr, (size_t)new_size);
   assert(ptr);
   return ptr;
 }

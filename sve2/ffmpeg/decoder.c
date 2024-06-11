@@ -9,6 +9,7 @@
 #include <libavcodec/packet.h>
 #include <libavutil/common.h>
 #include <libavutil/error.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_drm.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/pixfmt.h>
@@ -17,6 +18,7 @@
 #include <unistd.h>
 
 #include "sve2/ffmpeg/demuxer.h"
+#include "sve2/utils/mpmc.h"
 #include "sve2/utils/runtime.h"
 
 static enum AVPixelFormat get_format_vaapi(struct AVCodecContext *s,
@@ -122,122 +124,27 @@ decode_result_t decoder_decode(decoder_t *d, AVFrame *frame, i64 deadline) {
   }
 }
 
+bool decoder_wait_for_seek(decoder_t *d, i64 deadline) {
+  packet_msg_t msg;
+  do {
+    if (!mpmc_recv(&d->stream->packet_channel, &msg, deadline)) {
+      return false;
+    }
+
+    if (msg.regular) {
+      av_packet_free(&msg.packet);
+    }
+  } while (!msg.seek);
+  return true;
+}
+
+enum AVPixelFormat decoder_get_sw_format(const decoder_t *d) {
+  const AVBufferRef *hw_frames_ctx_buf = d->cc->hw_frames_ctx;
+  if (!hw_frames_ctx_buf) {
+    return AV_PIX_FMT_NONE;
+  }
+
+  return ((const AVHWFramesContext *)hw_frames_ctx_buf->data)->sw_format;
+}
+
 void decoder_free(decoder_t *d) { avcodec_free_context(&d->cc); }
-
-static void map_nv12(AVFrame *frame, enum AVPixelFormat format,
-                     decode_texture_t *texture) {
-  const AVPixFmtDescriptor *pix_fmt = av_pix_fmt_desc_get(format);
-  log_trace("mapping texture with pixel format %s (aka %s)",
-            av_get_pix_fmt_name(format), pix_fmt->alias);
-  texture->format = format;
-
-  bool rgb = pix_fmt->flags & AV_PIX_FMT_FLAG_RGB;
-
-  // endianness mismatch check
-#ifdef __STDC_ENDIAN_LITTLE__
-  nassert(!(pix_fmt->flags & AV_PIX_FMT_FLAG_BE));
-#elif defined(__STDC_ENDIAN_BIG__)
-  nassert(pix_fmt->flags & AV_PIX_FMT_FLAG_BE);
-#endif
-
-  const AVDRMFrameDescriptor *desc =
-      (const AVDRMFrameDescriptor *)frame->data[0];
-  for (i32 i = 0; i < desc->nb_objects; ++i) {
-    texture->vaapi_fds[i] = desc->objects[i].fd;
-  }
-
-  glGenTextures(desc->nb_layers, texture->textures);
-  for (i32 i = 0; i < desc->nb_layers; ++i) {
-    const AVDRMLayerDescriptor *layer = &desc->layers[i];
-
-    u32 w_shift = 0, h_shift = 0;
-    // we only shift the dimensions if
-    // - not RGB format
-    // - this plane contains either U or V (chroma) data (or both)
-    // - this plane does not contain Y (luma) data
-    // the last condition is crucial: there exists formats such as YUYV422 which
-    // interleaves everything into a plane. the width and height of such plane
-    // should be the same as the original frame
-    if (!rgb &&
-        (i == pix_fmt->comp[1 /*U*/].plane ||
-         i == pix_fmt->comp[2 /*V*/].plane) &&
-        i != pix_fmt->comp[0 /*Y*/].plane) {
-      w_shift = pix_fmt->log2_chroma_w;
-      h_shift = pix_fmt->log2_chroma_h;
-    }
-
-    i32 attr_index = 0;
-    nassert(layer->nb_planes <= AV_DRM_MAX_PLANES);
-    EGLAttrib attrs[7 + AV_DRM_MAX_PLANES * 6];
-    attrs[attr_index++] = EGL_LINUX_DRM_FOURCC_EXT;
-    attrs[attr_index++] = layer->format;
-    attrs[attr_index++] = EGL_WIDTH;
-    attrs[attr_index++] = AV_CEIL_RSHIFT(frame->width, w_shift);
-    attrs[attr_index++] = EGL_HEIGHT;
-    attrs[attr_index++] = AV_CEIL_RSHIFT(frame->height, h_shift);
-    for (i32 i = 0; i < layer->nb_planes; ++i) {
-      attrs[attr_index++] = EGL_DMA_BUF_PLANE0_FD_EXT + i * 3;
-      attrs[attr_index++] = desc->objects[layer->planes[i].object_index].fd;
-      attrs[attr_index++] = EGL_DMA_BUF_PLANE0_OFFSET_EXT + i * 3;
-      attrs[attr_index++] = layer->planes[i].offset;
-      attrs[attr_index++] = EGL_DMA_BUF_PLANE0_PITCH_EXT + i * 3;
-      attrs[attr_index++] = layer->planes[i].pitch;
-    }
-    attrs[attr_index++] = EGL_NONE;
-    nassert(attr_index <= sve2_arrlen(attrs));
-    nassert((texture->images[i] = eglCreateImage(
-                 eglGetCurrentDisplay(), EGL_NO_CONTEXT, EGL_LINUX_DMA_BUF_EXT,
-                 NULL, attrs)) != EGL_NO_IMAGE);
-    glBindTexture(GL_TEXTURE_2D, texture->textures[i]);
-    glEGLImageTargetTexStorageEXT(GL_TEXTURE_2D, texture->images[i], NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  }
-}
-
-decode_texture_t decoder_blank_texture() {
-  decode_texture_t t;
-  memset(&t, 0, sizeof t);
-  for (i32 i = 0; i < sve2_arrlen(t.vaapi_fds); ++i) {
-    t.vaapi_fds[i] = -1;
-  }
-  return t;
-}
-
-void decoder_map_texture(decoder_t *d, const AVFrame *frame,
-                         AVFrame *mapped_frame, decode_texture_t *texture) {
-  decoder_unmap_texture(texture);
-  mapped_frame->format = AV_PIX_FMT_DRM_PRIME;
-  nassert(av_hwframe_map(mapped_frame, frame,
-                         AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT) >= 0);
-  enum AVPixelFormat format =
-      ((AVHWFramesContext *)d->cc->hw_frames_ctx->data)->sw_format;
-  map_nv12(mapped_frame, format, texture);
-  av_frame_unref(mapped_frame);
-}
-
-void decoder_unmap_texture(decode_texture_t *texture) {
-  for (i32 i = 0; i < sve2_arrlen(texture->textures); ++i) {
-    if (texture->textures[i]) {
-      glDeleteTextures(1, &texture->textures[i]);
-    }
-
-    texture->textures[i] = 0;
-  }
-  for (i32 i = 0; i < sve2_arrlen(texture->images); ++i) {
-    if (texture->images[i] != EGL_NO_IMAGE) {
-      eglDestroyImage(eglGetCurrentDisplay(), texture->images[i]);
-    }
-
-    texture->images[i] = EGL_NO_IMAGE;
-  }
-  for (i32 i = 0; i < sve2_arrlen(texture->vaapi_fds); ++i) {
-    if (texture->vaapi_fds[i] >= 0) {
-      close(texture->vaapi_fds[i]);
-    }
-
-    texture->vaapi_fds[i] = -1;
-  }
-}
