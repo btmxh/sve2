@@ -159,6 +159,7 @@ int main(int argc, char *argv[]) {
 
     nassert(shader_use(encode_shader) >= 0);
     glUniform1i(0, uv_offset_y);
+    glUniform1i(1, true);
     glBindImageTexture(0, fbo_color_attachment, 0, GL_FALSE, 0, GL_READ_ONLY,
                        GL_RGBA32F);
     glBindImageTexture(1, nv12_texture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R8);
@@ -215,7 +216,6 @@ int main(int argc, char *argv[]) {
     av_frame_unref(encode_frame);
     av_frame_unref(transfered_frame);
     av_frame_unref(decode_frame);
-
   }
 
   i64 next_pts = 0;
