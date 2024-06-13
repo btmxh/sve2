@@ -53,6 +53,7 @@ static void default_encoder_config_fn(AVCodecContext *ctx, void *userptr) {
              av_get_pix_fmt_name(VIDEO_PIX_FMT),
              av_get_pix_fmt_name(VIDEO_SW_PIX_FMT));
     ctx->flags = AV_CODEC_FLAG_GLOBAL_HEADER;
+    ctx->max_b_frames = 0;
     break;
   case AVMEDIA_TYPE_AUDIO:
     ctx->sample_fmt = AUDIO_SAMPLE_FMT;
@@ -104,7 +105,7 @@ void encoder_init(encoder_t *e, context_t *c, const AVCodec *codec,
     hw_frames_ctx->sw_format = VIDEO_SW_PIX_FMT;
     hw_frames_ctx->width = e->c->width;
     hw_frames_ctx->height = e->c->height;
-    hw_frames_ctx->initial_pool_size = 20;
+    /* hw_frames_ctx->initial_pool_size = 20; */
     nassert(av_hwframe_ctx_init(hw_frames_ref) >= 0);
     nassert(e->c->hw_frames_ctx = av_buffer_ref(hw_frames_ref));
     av_buffer_unref(&hw_frames_ref);
@@ -127,7 +128,7 @@ AVPacket *encoder_receive_packet(encoder_t *e) {
   AVPacket *packet = av_packet_alloc();
   assert(packet);
   int err = avcodec_receive_packet(e->c, packet);
-  assert(err >= 0 || err == AVERROR(EAGAIN));
+  assert(err >= 0 || err == AVERROR(EAGAIN) || err == AVERROR_EOF);
   if (err < 0) {
     av_packet_free(&packet);
   }
@@ -136,7 +137,7 @@ AVPacket *encoder_receive_packet(encoder_t *e) {
 }
 
 void encoder_free(encoder_t *e) {
-  av_buffer_unref(&e->hw_device_ctx);
   av_buffer_unref(&e->c->hw_frames_ctx);
+  av_buffer_unref(&e->hw_device_ctx);
   avcodec_free_context(&e->c);
 }

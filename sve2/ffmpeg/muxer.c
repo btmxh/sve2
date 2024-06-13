@@ -29,7 +29,7 @@ i32 muxer_new_stream(muxer_t *m, context_t *c, const AVCodec *codec,
   m->encoders =
       sve2_realloc(m->encoders, m->fc->nb_streams * sizeof *m->encoders);
   encoder_init(&m->encoders[stream->id], c, codec, hwaccel, config_fn, userptr);
-  if(m->fc->oformat->flags & AVFMT_GLOBALHEADER) {
+  if (m->fc->oformat->flags & AVFMT_GLOBALHEADER) {
     m->encoders[stream->id].c->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
   }
   stream->time_base = m->encoders[stream->id].c->time_base;
@@ -42,17 +42,25 @@ void muxer_begin(muxer_t *m) {
   nassert_ffmpeg(avformat_write_header(m->fc, NULL));
 }
 
-void muxer_end(muxer_t *m) { nassert(av_write_trailer(m->fc) >= 0); }
-
 static void muxer_flush(muxer_t *m, i32 stream_index) {
   AVPacket *packet;
   while ((packet = encoder_receive_packet(&m->encoders[stream_index]))) {
+    log_error("AYAYAY %" PRIi64 " %" PRIi64, packet->dts, packet->pts);
     av_packet_rescale_ts(packet, m->encoders[stream_index].c->time_base,
                          m->fc->streams[stream_index]->time_base);
+    log_error("AYAYAB %" PRIi64 " %" PRIi64, packet->dts, packet->pts);
     packet->stream_index = stream_index;
     av_interleaved_write_frame(m->fc, packet);
     av_packet_free(&packet);
   }
+}
+
+void muxer_end(muxer_t *m) {
+  for (i32 i = 0; i < (i32) m->fc->nb_streams; ++i) {
+    encoder_submit_frame(&m->encoders[i], NULL);
+    muxer_flush(m, i);
+  }
+  nassert(av_write_trailer(m->fc) >= 0);
 }
 
 void muxer_submit_frame(muxer_t *m, const AVFrame *frame, i32 stream_index) {

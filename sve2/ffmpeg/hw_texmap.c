@@ -194,9 +194,8 @@ void hw_texmap_from_gl(hw_texture_t *texture, AVFrame *prime, AVFrame *dst) {
   prime->width = dst->width;
   prime->height = dst->height;
   gl_to_drm_prime(texture, prime);
-  int err =
-      av_hwframe_map(dst, prime, AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT);
-  nassert(err >= 0);
+  nassert_ffmpeg(
+      av_hwframe_map(dst, prime, AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT));
   av_frame_unref(prime);
 }
 

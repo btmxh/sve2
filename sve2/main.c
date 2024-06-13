@@ -52,7 +52,6 @@ int main(int argc, char *argv[]) {
 
   shader_t *shader = shader_new_vf(c, "y_uv.vert.glsl", "y_uv.frag.glsl");
   shader_t *encode_shader = shader_new_c(c, "encode_nv12.comp.glsl");
-  i32 shader_version = -1;
 
   AVFormatContext *fc = open_media(argv[1]);
   assert(fc);
@@ -73,7 +72,7 @@ int main(int argc, char *argv[]) {
   nassert(decoder_init(&vdec, fc, &streams[0], true));
   nassert(decoder_init(&adec, fc, &streams[1], false));
 
-  demuxer_cmd_seek(&d, -1, 5 * AV_TIME_BASE, 0);
+  demuxer_cmd_seek(&d, -1, 10 * AV_TIME_BASE, 0);
   decoder_wait_for_seek(&vdec, SVE_DEADLINE_INF);
   decoder_wait_for_seek(&adec, SVE_DEADLINE_INF);
 
@@ -120,7 +119,7 @@ int main(int argc, char *argv[]) {
   glTextureParameteri(nv12_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
   muxer_begin(&wav);
-  for (i32 i = 0; i < 10; ++i) {
+  for (i32 i = 0; i < 100; ++i) {
     decode_result_t err = decoder_decode(&vdec, decode_frame, SVE_DEADLINE_INF);
     if (err == DECODE_EOF) {
       break;
@@ -134,8 +133,7 @@ int main(int argc, char *argv[]) {
     context_get_framebuffer_info(c, &width, &height, NULL, NULL);
     glViewport(0, 0, width, height);
 
-    i32 version = shader_use(shader);
-    if (version >= 0) {
+    if (shader_use(shader) >= 0) {
       hw_texture_t texture = hw_texture_blank(decoder_get_sw_format(&vdec));
       hw_texmap_to_gl(decode_frame, transfered_frame, &texture);
       for (i32 i = 0; i < sve2_arrlen(texture.textures); ++i) {
@@ -151,7 +149,6 @@ int main(int argc, char *argv[]) {
       glBindFramebuffer(GL_FRAMEBUFFER, fbo);
       glViewport(0, 0, fbo_width, fbo_height);
       glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-      shader_version = version;
       hw_texmap_unmap(&texture, true);
     }
 
@@ -204,8 +201,8 @@ int main(int argc, char *argv[]) {
     /* free(y); */
     /* free(uv); */
 
-    nassert(av_hwframe_get_buffer(wav.encoders[out_video_si].c->hw_frames_ctx,
-                                  encode_frame, 0) >= 0);
+    nassert_ffmpeg(av_hwframe_get_buffer(
+        wav.encoders[out_video_si].c->hw_frames_ctx, encode_frame, 0));
     encode_frame->width = fbo_width;
     encode_frame->height = fbo_height;
     encode_frame->pts = i;
@@ -215,10 +212,10 @@ int main(int argc, char *argv[]) {
     muxer_submit_frame(&wav, encode_frame, out_video_si);
     hw_texmap_unmap(&texture, false);
 
-    av_frame_free(&encode_frame);
-    nassert(encode_frame = av_frame_alloc());
+    av_frame_unref(encode_frame);
     av_frame_unref(transfered_frame);
     av_frame_unref(decode_frame);
+
   }
 
   i64 next_pts = 0;
@@ -247,6 +244,7 @@ int main(int argc, char *argv[]) {
   avformat_close_input(&fc);
 
   context_free(c);
+  done_logging();
 
   return 0;
 }
