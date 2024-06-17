@@ -16,16 +16,14 @@
 #include <libswscale/swscale.h>
 #include <log.h>
 
-#include "sve2/ffmpeg/encoder.h"
-#include "sve2/ffmpeg/hw_texmap.h"
-#include "sve2/ffmpeg/muxer.h"
-
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb/stb_image_write.h>
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
+#include "sve2/ffmpeg/encoder.h"
+#include "sve2/ffmpeg/hw_texmap.h"
 #include "sve2/context/context.h"
 #include "sve2/ffmpeg/decoder.h"
 #include "sve2/ffmpeg/demuxer.h"
@@ -53,7 +51,6 @@ int main(int argc, char *argv[]) {
           }));
 
   shader_t *shader = shader_new_vf(c, "y_uv.vert.glsl", "y_uv.frag.glsl");
-  shader_t *encode_shader = shader_new_c(c, "encode_nv12.comp.glsl");
 
   AVFormatContext *fc = open_media(argv[1]);
   assert(fc);
@@ -61,8 +58,7 @@ int main(int argc, char *argv[]) {
   demuxer_t d;
   demuxer_stream_t streams[] = {
       (demuxer_stream_t){.index = stream_index_video(0)},
-      (demuxer_stream_t){.index = stream_index_audio(0)},
-  };
+      (demuxer_stream_t){.index = stream_index_audio(0)}, };
   demuxer_init(&d, &(demuxer_init_t){.fc = fc,
                                      .streams = streams,
                                      .num_streams = sve2_arrlen(streams),
