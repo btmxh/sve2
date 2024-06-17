@@ -85,12 +85,12 @@ int main(int argc, char *argv[]) {
                           adec.cc->sample_fmt, adec.cc->sample_rate, 0, NULL);
   nassert(swr && err >= 0 && swr_init(swr) >= 0);
 
-  muxer_t wav;
-  muxer_init(&wav, "output.mkv");
+  muxer_t mux;
+  muxer_init(&mux, "output.mkv");
   i32 out_video_si = muxer_new_stream(
-      &wav, c, avcodec_find_encoder_by_name("h264_vaapi"), true, NULL, NULL);
+      &mux, c, avcodec_find_encoder_by_name("h264_vaapi"), true, NULL, NULL);
   i32 out_audio_si = muxer_new_stream(
-      &wav, c, avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE), false, NULL, NULL);
+      &mux, c, avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE), false, NULL, NULL);
 
   AVFrame *decode_frame = av_frame_alloc();
   AVFrame *encode_frame = av_frame_alloc();
@@ -118,8 +118,8 @@ int main(int argc, char *argv[]) {
   glTextureParameteri(nv12_texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   glTextureParameteri(nv12_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-  muxer_begin(&wav);
-  for (i32 i = 0; i < 100; ++i) {
+  muxer_begin(&mux);
+  for (i32 i = 0; i < 2; ++i) {
     decode_result_t err = decoder_decode(&vdec, decode_frame, SVE_DEADLINE_INF);
     if (err == DECODE_EOF) {
       break;
@@ -165,52 +165,16 @@ int main(int argc, char *argv[]) {
     glBindImageTexture(1, nv12_texture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R8);
     glDispatchCompute(fbo_width / 2, fbo_height / 2, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-    /* char *img = sve2_malloc(nv12_width * nv12_height); */
-    /* glGetTextureImage(nv12_texture, 0, GL_RED, GL_UNSIGNED_BYTE, */
-    /*                   nv12_width * nv12_height, img); */
 
-    /* char *y = sve2_malloc(fbo_width * fbo_height), */
-    /*      *uv = sve2_malloc(fbo_width * fbo_height / 2); */
-    /* glPixelStorei(GL_UNPACK_ALIGNMENT, 1); */
-    /* glPixelStorei(GL_PACK_ALIGNMENT, 1); */
-    /* glGetTextureSubImage(nv12_texture, 0, 0, 0, 0, fbo_width, fbo_height, 1,
-     */
-    /*                      GL_RED, GL_UNSIGNED_BYTE, fbo_width * fbo_height,
-     * y); */
-    /* glGetTextureSubImage(nv12_texture, 0, 0, fbo_height, 0, fbo_width, */
-    /*                      fbo_height / 2, 1, GL_RED, GL_UNSIGNED_BYTE, */
-    /*                      fbo_width * fbo_height, uv); */
-    /* for (i32 j = 0; j < fbo_width * fbo_height / 4; ++j) { */
-    /*   uv[j * 2] = uv[j * 2]; */
-    /*   uv[j * 2 + 1] = -1; */
-    /* } */
-    /* char filename[32]; */
-    /* nassert(snprintf(filename, sizeof filename, "frames/y_%02d.png", i) >=
-     * 0); */
-    /* stbi_write_png(filename, nv12_width, nv12_height, 1, img, fbo_width); */
-    /* free(img); */
-    /* FILE* f = fopen("frames/yuv_%02d.raw", "w"); */
-    /* fwrite(y, 1, fbo_width * fbo_height, f); */
-    /* fwrite(uv, 1, fbo_width * fbo_height / 2, f); */
-    /* fclose(f); */
-    /* stbi_flip_vertically_on_write(true); */
-    /* stbi_write_png(filename, fbo_width, fbo_height, 1, y, fbo_width); */
-    /* nassert(snprintf(filename, sizeof filename, "frames/uv_%02d.png", i) >=
-     * 0); */
-    /* stbi_write_png(filename, fbo_width / 2, fbo_height / 2, 2, y, fbo_width);
-     */
-    /* free(y); */
-    /* free(uv); */
-
-    nassert_ffmpeg(av_hwframe_get_buffer(
-        wav.encoders[out_video_si].c->hw_frames_ctx, encode_frame, 0));
+    encode_frame->hw_frames_ctx =
+        av_buffer_ref(mux.encoders[0].c->hw_frames_ctx);
     encode_frame->width = fbo_width;
     encode_frame->height = fbo_height;
     encode_frame->pts = i;
     hw_texture_t texture =
         hw_texture_from_gl(AV_PIX_FMT_NV12, 1, (GLuint[]){nv12_texture});
     hw_texmap_from_gl(&texture, transfered_frame, encode_frame);
-    muxer_submit_frame(&wav, encode_frame, out_video_si);
+    muxer_submit_frame(&mux, encode_frame, out_video_si);
     hw_texmap_unmap(&texture, false);
 
     av_frame_unref(encode_frame);
@@ -229,11 +193,11 @@ int main(int argc, char *argv[]) {
     nassert(swr_convert_frame(swr, transfered_frame, decode_frame) >= 0);
     transfered_frame->pts = next_pts;
     next_pts += transfered_frame->nb_samples;
-    muxer_submit_frame(&wav, transfered_frame, out_audio_si);
+    muxer_submit_frame(&mux, transfered_frame, out_audio_si);
   }
-  muxer_end(&wav);
+  muxer_end(&mux);
 
-  muxer_free(&wav);
+  muxer_free(&mux);
   av_frame_free(&decode_frame);
   av_frame_free(&encode_frame);
   av_frame_free(&transfered_frame);

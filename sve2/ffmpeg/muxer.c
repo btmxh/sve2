@@ -45,10 +45,8 @@ void muxer_begin(muxer_t *m) {
 static void muxer_flush(muxer_t *m, i32 stream_index) {
   AVPacket *packet;
   while ((packet = encoder_receive_packet(&m->encoders[stream_index]))) {
-    log_error("AYAYAY %" PRIi64 " %" PRIi64, packet->dts, packet->pts);
     av_packet_rescale_ts(packet, m->encoders[stream_index].c->time_base,
                          m->fc->streams[stream_index]->time_base);
-    log_error("AYAYAB %" PRIi64 " %" PRIi64, packet->dts, packet->pts);
     packet->stream_index = stream_index;
     av_interleaved_write_frame(m->fc, packet);
     av_packet_free(&packet);

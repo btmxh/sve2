@@ -136,8 +136,10 @@ context_t *context_init(const context_init_t *info) {
   // we require EGL + OpenGL ES for VAAPI integration extensions
   glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_EGL_CONTEXT_API);
   glfwWindowHint(GLFW_CONTEXT_DEBUG, GLFW_TRUE);
-  nassert((c->window = glfwCreateWindow(info->width, info->height,
-                                        "sve2 window", NULL, NULL)));
+  // nassert((c->window = glfwCreateWindow(info->width, info->height,
+  //                                       "sve2 window", NULL, NULL)));
+  c->window = glfwCreateWindow(info->width, info->height,
+                                        "sve2 window", NULL, NULL);
   glfwMakeContextCurrent(c->window);
   glfwSetWindowUserPointer(c->window, c);
   nassert(gladLoadGL(glfwGetProcAddress));

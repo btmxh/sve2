@@ -6,6 +6,7 @@
 #include <threads.h>
 
 #include <libavutil/log.h>
+#include <log.h>
 
 #include "sve2/log/log_buffer.h"
 #include "sve2/utils/runtime.h"
@@ -81,10 +82,10 @@ static void av_log_callback(void *avcl, int level, const char *fmt,
 void init_logging() {
   sve2_mtx_init(&log_mtx, mtx_plain);
   log_set_lock(lock_fn, NULL);
-  log_set_level(LOG_ERROR);
+  log_set_level(LOG_FATAL);
   init_ffmpeg_log_buffer();
-  av_log_set_level(AV_LOG_DEBUG);
   av_log_set_callback(av_log_callback);
+  av_log_set_level(AV_LOG_DEBUG);
 }
 
 void done_logging() {
