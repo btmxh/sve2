@@ -146,17 +146,21 @@ static void gl_to_drm_prime(hw_texture_t *texture, AVFrame *prime) {
     texture->vaapi_fds[i] = -1;
   }
 
-  frame->layers[1].nb_planes = 1;
-  frame->layers[1].format = DRM_FORMAT_RG88;
-  frame->layers[1].planes[0].object_index = 0;
-  i32 uv_offset_y = (i32)(((u32)prime->height + 63u) & ~63u);
-  frame->layers[1].planes[0].offset =
+  if(sw_format == AV_PIX_FMT_NV12) {
+    // NV12-specific hacks
+    i32 uv_offset_y = prime->height;
+    hw_align_size(NULL, &uv_offset_y);
+    frame->layers[1].nb_planes = 1;
+    frame->layers[1].format = DRM_FORMAT_RG88;
+    frame->layers[1].planes[0].object_index = 0;
+    frame->layers[1].planes[0].offset =
       frame->layers[0].planes[0].pitch * uv_offset_y;
-  frame->objects[0].size =
+    frame->objects[0].size =
       frame->layers[0].planes[0].pitch *
       (prime->height / 2 + frame->layers[1].planes[0].offset);
-  frame->layers[1].planes[0].pitch = frame->layers[0].planes[0].pitch;
-  ++frame->nb_layers;
+    frame->layers[1].planes[0].pitch = frame->layers[0].planes[0].pitch;
+    ++frame->nb_layers;
+  }
 
   prime->data[0] = (u8 *)frame;
 }
@@ -169,6 +173,8 @@ hw_texture_t hw_texture_from_gl(enum AVPixelFormat format, i32 num_textures,
                                 GLuint textures[]) {
   hw_texture_t t;
   memset(&t, 0, sizeof t);
+  t.format = format;
+
   for (i32 i = 0; i < sve2_arrlen(t.vaapi_fds); ++i) {
     t.vaapi_fds[i] = -1;
   }
