@@ -3,8 +3,8 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 
-#include "sve2/context/context.h"
 #include "sve2/ffmpeg/encoder.h"
+#include "sve2/utils/types.h"
 
 typedef struct {
   AVFormatContext *fc;

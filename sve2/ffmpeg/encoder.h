@@ -5,10 +5,9 @@
 #include <libavcodec/codec.h>
 #include <libavutil/hwcontext_drm.h>
 
-#include "sve2/context/context.h"
+typedef struct context_t context_t;
 
 // Encoder API
-
 typedef struct {
   AVCodecContext *c;
   AVBufferRef *hw_device_ctx;

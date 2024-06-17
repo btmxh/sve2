@@ -47,7 +47,9 @@ int main(int argc, char *argv[]) {
               .mode = CONTEXT_MODE_RENDER,
               .width = 1920,
               .height = 1080,
-              .fps = 60,
+              .fps = 75,
+              .output_path = "output.mkv",
+              .sample_rate = 48000,
           }));
 
   shader_t *shader = shader_new_vf(c, "y_uv.vert.glsl", "y_uv.frag.glsl");
@@ -85,52 +87,16 @@ int main(int argc, char *argv[]) {
                           adec.cc->sample_fmt, adec.cc->sample_rate, 0, NULL);
   nassert(swr && err >= 0 && swr_init(swr) >= 0);
 
-  muxer_t mux;
-  muxer_init(&mux, "output.mkv");
-  i32 out_video_si = muxer_new_stream(
-      &mux, c, avcodec_find_encoder_by_name("h264_vaapi"), true, NULL, NULL);
-  i32 out_audio_si = muxer_new_stream(
-      &mux, c, avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE), false, NULL, NULL);
-
   AVFrame *decode_frame = av_frame_alloc();
-  AVFrame *encode_frame = av_frame_alloc();
   AVFrame *transfered_frame = av_frame_alloc();
   assert(decode_frame && transfered_frame);
 
-  GLuint fbo, fbo_color_attachment, nv12_texture;
-  i32 fbo_width, fbo_height;
-  context_get_framebuffer_info(c, &fbo_width, &fbo_height, NULL, NULL);
-  glCreateFramebuffers(1, &fbo);
-  glCreateTextures(GL_TEXTURE_2D, 1, &fbo_color_attachment);
-  glTextureStorage2D(fbo_color_attachment, 1, GL_RGBA32F, fbo_width,
-                     fbo_height);
-  glTextureParameteri(fbo_color_attachment, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTextureParameteri(fbo_color_attachment, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glNamedFramebufferTexture(fbo, GL_COLOR_ATTACHMENT0, fbo_color_attachment, 0);
-  nassert(glCheckNamedFramebufferStatus(fbo, GL_FRAMEBUFFER) ==
-          GL_FRAMEBUFFER_COMPLETE);
-  i32 uv_offset_y = fbo_height;
-  hw_align_size(NULL, &uv_offset_y);
-  i32 nv12_width = fbo_width, nv12_height = uv_offset_y + fbo_height / 2;
-  glCreateTextures(GL_TEXTURE_2D, 1, &nv12_texture);
-  glTextureStorage2D(nv12_texture, 1, GL_R8, nv12_width, nv12_height);
-  glTextureParameteri(nv12_texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTextureParameteri(nv12_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-  muxer_begin(&mux);
-  for (i32 i = 0; i < 10; ++i) {
-    decode_result_t err = decoder_decode(&vdec, decode_frame, SVE_DEADLINE_INF);
-    if (err == DECODE_EOF) {
-      break;
-    }
-
+  for (i32 i = 0;
+       i < 100 && (err = decoder_decode(&vdec, decode_frame,
+                                        SVE_DEADLINE_INF)) != DECODE_EOF;
+       ++i) {
     nassert(err == DECODE_SUCCESS);
-
     context_begin_frame(c);
-
-    i32 width, height;
-    context_get_framebuffer_info(c, &width, &height, NULL, NULL);
-    glViewport(0, 0, width, height);
 
     if (shader_use(shader) >= 0) {
       hw_texture_t texture = hw_texture_blank(decoder_get_sw_format(&vdec));
@@ -145,44 +111,18 @@ int main(int argc, char *argv[]) {
                   texture.textures[i], i);
       }
 
-      glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-      glViewport(0, 0, fbo_width, fbo_height);
       glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
       hw_texmap_unmap(&texture, true);
     }
 
+    av_frame_unref(decode_frame);
+    av_frame_unref(transfered_frame);
+
     context_end_frame(c);
-
-    av_frame_unref(decode_frame);
-    av_frame_unref(transfered_frame);
-
-    nassert(shader_use(encode_shader) >= 0);
-    glUniform1i(0, uv_offset_y);
-    glUniform1i(1, true);
-    glBindImageTexture(0, fbo_color_attachment, 0, GL_FALSE, 0, GL_READ_ONLY,
-                       GL_RGBA32F);
-    glBindImageTexture(1, nv12_texture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R8);
-    glDispatchCompute(fbo_width / 2, fbo_height / 2, 1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-    encode_frame->hw_frames_ctx =
-        av_buffer_ref(mux.encoders[0].c->hw_frames_ctx);
-    encode_frame->width = fbo_width;
-    encode_frame->height = fbo_height;
-    encode_frame->pts = i;
-    hw_texture_t texture =
-        hw_texture_from_gl(AV_PIX_FMT_NV12, 1, (GLuint[]){nv12_texture});
-    hw_texmap_from_gl(&texture, transfered_frame, encode_frame);
-    muxer_submit_frame(&mux, encode_frame, out_video_si);
-    hw_texmap_unmap(&texture, false);
-
-    av_frame_unref(encode_frame);
-    av_frame_unref(transfered_frame);
-    av_frame_unref(decode_frame);
   }
 
   i64 next_pts = 0;
-  for (i32 i = 0; i < 100; ++i) {
+  for (i32 i = 0; i < 500; ++i) {
     nassert(decoder_decode(&adec, decode_frame, SVE_DEADLINE_INF) ==
             DECODE_SUCCESS);
     av_channel_layout_copy(&transfered_frame->ch_layout,
@@ -192,13 +132,10 @@ int main(int argc, char *argv[]) {
     nassert(swr_convert_frame(swr, transfered_frame, decode_frame) >= 0);
     transfered_frame->pts = next_pts;
     next_pts += transfered_frame->nb_samples;
-    muxer_submit_frame(&mux, transfered_frame, out_audio_si);
+    context_submit_audio(c, transfered_frame);
   }
-  muxer_end(&mux);
 
-  muxer_free(&mux);
   av_frame_free(&decode_frame);
-  av_frame_free(&encode_frame);
   av_frame_free(&transfered_frame);
   swr_free(&swr);
   decoder_free(&vdec);

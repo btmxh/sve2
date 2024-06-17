@@ -20,11 +20,9 @@
 
 // video bit-per-pixel
 #define VIDEO_BPP 1.0
-#define VIDEO_FRAME_RATE 75
 #define VIDEO_PIX_FMT AV_PIX_FMT_VAAPI
 #define VIDEO_SW_PIX_FMT AV_PIX_FMT_NV12
 #define AUDIO_SAMPLE_FMT AV_SAMPLE_FMT_S16
-#define AUDIO_SAMPLE_RATE 48000
 
 static void default_encoder_config_fn(AVCodecContext *ctx, void *userptr) {
   context_t *c = (context_t *)userptr;
@@ -33,22 +31,24 @@ static void default_encoder_config_fn(AVCodecContext *ctx, void *userptr) {
 
   i32 width, height;
   context_get_framebuffer_info(c, &width, &height, NULL, NULL);
+  i32 frame_rate = c->info.fps;
+  i32 sample_rate = c->info.sample_rate;
 
   switch (ctx->codec->type) {
   case AVMEDIA_TYPE_VIDEO:
     ctx->width = width;
     ctx->height = height;
-    ctx->time_base = (AVRational){1, VIDEO_FRAME_RATE};
-    ctx->framerate = (AVRational){VIDEO_FRAME_RATE, 1};
+    ctx->time_base = (AVRational){1, frame_rate};
+    ctx->framerate = (AVRational){frame_rate, 1};
     ctx->sample_aspect_ratio = (AVRational){1, 1};
     ctx->pix_fmt = VIDEO_PIX_FMT;
-    ctx->bit_rate = (i64)(width * height * VIDEO_FRAME_RATE * VIDEO_BPP);
+    ctx->bit_rate = (i64)(width * height * frame_rate * VIDEO_BPP);
     ctx->sw_pix_fmt = VIDEO_SW_PIX_FMT;
     // stolen from ffmpeg demo (probably does not matter much)
     // ctx->gop_size = 12;
     log_info("initializing video encoder with w=%d, h=%d, fr=%d, br=%" PRIi64
              ", pixfmt=%s, sw_pixfmt=%s",
-             width, height, VIDEO_FRAME_RATE, ctx->bit_rate,
+             width, height, frame_rate, ctx->bit_rate,
              av_get_pix_fmt_name(VIDEO_PIX_FMT),
              av_get_pix_fmt_name(VIDEO_SW_PIX_FMT));
     ctx->flags = AV_CODEC_FLAG_GLOBAL_HEADER;
@@ -56,16 +56,15 @@ static void default_encoder_config_fn(AVCodecContext *ctx, void *userptr) {
     break;
   case AVMEDIA_TYPE_AUDIO:
     ctx->sample_fmt = AUDIO_SAMPLE_FMT;
-    ctx->sample_rate = AUDIO_SAMPLE_RATE;
+    ctx->sample_rate = sample_rate;
     ctx->bit_rate = 320000;
-    ctx->time_base = (AVRational){1, AUDIO_SAMPLE_RATE};
+    ctx->time_base = (AVRational){1, sample_rate};
     nassert(av_channel_layout_copy(
                 &ctx->ch_layout, &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO) >=
             0);
-    log_info("initializing audio encoder with sr=%d, br=%" PRIi64
-             ", samplefmt=%s",
-             AUDIO_SAMPLE_RATE, ctx->bit_rate,
-             av_get_sample_fmt_name(AUDIO_SAMPLE_FMT));
+    log_info(
+        "initializing audio encoder with sr=%d, br=%" PRIi64 ", samplefmt=%s",
+        sample_rate, ctx->bit_rate, av_get_sample_fmt_name(AUDIO_SAMPLE_FMT));
     break;
   default:
     log_warn("initializing %s encoder with no parameters",
