@@ -19,8 +19,8 @@
 #include "sve2/utils/runtime.h"
 
 // video bit-per-pixel
-#define VIDEO_BPP 0.15
-#define VIDEO_FRAME_RATE 60
+#define VIDEO_BPP 1.0
+#define VIDEO_FRAME_RATE 75
 #define VIDEO_PIX_FMT AV_PIX_FMT_VAAPI
 #define VIDEO_SW_PIX_FMT AV_PIX_FMT_NV12
 #define AUDIO_SAMPLE_FMT AV_SAMPLE_FMT_S16
@@ -43,10 +43,9 @@ static void default_encoder_config_fn(AVCodecContext *ctx, void *userptr) {
     ctx->sample_aspect_ratio = (AVRational){1, 1};
     ctx->pix_fmt = VIDEO_PIX_FMT;
     ctx->bit_rate = (i64)(width * height * VIDEO_FRAME_RATE * VIDEO_BPP);
-    av_opt_set(ctx->priv_data, "preset", "slow", 0);
     ctx->sw_pix_fmt = VIDEO_SW_PIX_FMT;
     // stolen from ffmpeg demo (probably does not matter much)
-    ctx->gop_size = 12;
+    // ctx->gop_size = 12;
     log_info("initializing video encoder with w=%d, h=%d, fr=%d, br=%" PRIi64
              ", pixfmt=%s, sw_pixfmt=%s",
              width, height, VIDEO_FRAME_RATE, ctx->bit_rate,

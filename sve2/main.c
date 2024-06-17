@@ -111,7 +111,6 @@ int main(int argc, char *argv[]) {
           GL_FRAMEBUFFER_COMPLETE);
   i32 uv_offset_y = fbo_height;
   hw_align_size(NULL, &uv_offset_y);
-  assert(uv_offset_y == 1088);
   i32 nv12_width = fbo_width, nv12_height = uv_offset_y + fbo_height / 2;
   glCreateTextures(GL_TEXTURE_2D, 1, &nv12_texture);
   glTextureStorage2D(nv12_texture, 1, GL_R8, nv12_width, nv12_height);
@@ -119,7 +118,7 @@ int main(int argc, char *argv[]) {
   glTextureParameteri(nv12_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
   muxer_begin(&mux);
-  for (i32 i = 0; i < 2; ++i) {
+  for (i32 i = 0; i < 10; ++i) {
     decode_result_t err = decoder_decode(&vdec, decode_frame, SVE_DEADLINE_INF);
     if (err == DECODE_EOF) {
       break;
@@ -183,7 +182,7 @@ int main(int argc, char *argv[]) {
   }
 
   i64 next_pts = 0;
-  for (i32 i = 0; i < 10; ++i) {
+  for (i32 i = 0; i < 100; ++i) {
     nassert(decoder_decode(&adec, decode_frame, SVE_DEADLINE_INF) ==
             DECODE_SUCCESS);
     av_channel_layout_copy(&transfered_frame->ch_layout,
