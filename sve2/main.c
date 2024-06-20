@@ -1,24 +1,10 @@
-#include <assert.h>
-
-#include <glad/gl.h>
-#include <libavformat/avformat.h>
-#include <libavutil/frame.h>
-#include <libavutil/pixdesc.h>
-#include <libavutil/pixfmt.h>
-#include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
-#include <libswscale/swscale.h>
-#include <log.h>
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb/stb_image_write.h>
-
-#define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
 
 #include "sve2/context/context.h"
 #include "sve2/ffmpeg/decoder.h"
 #include "sve2/ffmpeg/demuxer.h"
+#include "sve2/ffmpeg/encoder.h"
+#include "sve2/ffmpeg/hw_texmap.h"
 #include "sve2/gl/shader.h"
 #include "sve2/log/logging.h"
 #include "sve2/utils/runtime.h"
@@ -34,14 +20,15 @@ int main(int argc, char *argv[]) {
 
   context_t *c;
   nassert(c = context_init(&(context_init_t){
-              .mode = CONTEXT_MODE_PREVIEW,
+              .mode = CONTEXT_MODE_RENDER,
               .width = 1920,
               .height = 1080,
-              .fps = 60,
+              .fps = 75,
+              .output_path = "output.mkv",
+              .sample_rate = 48000,
           }));
 
   shader_t *shader = shader_new_vf(c, "y_uv.vert.glsl", "y_uv.frag.glsl");
-  i32 shader_version = -1;
 
   AVFormatContext *fc = open_media(argv[1]);
   assert(fc);
@@ -62,50 +49,33 @@ int main(int argc, char *argv[]) {
   nassert(decoder_init(&vdec, fc, &streams[0], true));
   nassert(decoder_init(&adec, fc, &streams[1], false));
 
-  demuxer_cmd_seek(&d, -1, 5 * AV_TIME_BASE, 0);
-  sve2_sleep_for(SVE2_NS_PER_SEC / 10);
+  demuxer_cmd_seek(&d, -1, 10 * AV_TIME_BASE, 0);
+  decoder_wait_for_seek(&vdec, SVE_DEADLINE_INF);
+  decoder_wait_for_seek(&adec, SVE_DEADLINE_INF);
+
   glfwSwapInterval(0);
 
-  struct SwsContext *sws;
   struct SwrContext *swr;
-  sws = sws_getContext(vdec.cc->width, vdec.cc->height, AV_PIX_FMT_NV12,
-                       vdec.cc->width, vdec.cc->height, AV_PIX_FMT_RGB24,
-                       SWS_FAST_BILINEAR, NULL, NULL, NULL);
   int err =
       swr_alloc_set_opts2(&swr, &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO,
                           AV_SAMPLE_FMT_S16, 48000, &adec.cc->ch_layout,
                           adec.cc->sample_fmt, adec.cc->sample_rate, 0, NULL);
-  nassert(sws && swr && err >= 0 && swr_init(swr) >= 0);
+  nassert(swr && err >= 0 && swr_init(swr) >= 0);
 
   AVFrame *decode_frame = av_frame_alloc();
   AVFrame *transfered_frame = av_frame_alloc();
   assert(decode_frame && transfered_frame);
 
-  i64 start = threads_timer_now() - 5 * SVE2_NS_PER_SEC;
-
-  for (i32 i = 0; i < 100; ++i) {
-    decode_result_t err = decoder_decode(&vdec, decode_frame, SVE_DEADLINE_INF);
-    if (err == DECODE_EOF) {
-      break;
-    }
-
+  for (i32 i = 0;
+       i < 100 && (err = decoder_decode(&vdec, decode_frame,
+                                        SVE_DEADLINE_INF)) != DECODE_EOF;
+       ++i) {
     nassert(err == DECODE_SUCCESS);
-
-    decode_texture_t texture = decoder_blank_texture();
-    decoder_map_texture(&vdec, decode_frame, transfered_frame, &texture);
-
-    i64 deadline = start + decode_frame->pts * fc->streams[0]->time_base.num *
-                               SVE2_NS_PER_SEC / fc->streams[0]->time_base.den;
-    /* sve2_sleep_until(deadline); */
     context_begin_frame(c);
 
-    i32 width, height;
-    context_get_framebuffer_info(c, &width, &height, NULL, NULL);
-    glViewport(0, 0, width, height);
-
-    i32 version = shader_use(shader);
-    const AVPixFmtDescriptor *format_desc = av_pix_fmt_desc_get(texture.format);
-    if (version >= 0) {
+    if (shader_use(shader) >= 0) {
+      hw_texture_t texture = hw_texture_blank(decoder_get_sw_format(&vdec));
+      hw_texmap_to_gl(decode_frame, transfered_frame, &texture);
       for (i32 i = 0; i < sve2_arrlen(texture.textures); ++i) {
         if (!texture.textures[i]) {
           continue;
@@ -115,27 +85,41 @@ int main(int argc, char *argv[]) {
         log_trace("binding texture %u to bind slot %" PRIi32,
                   texture.textures[i], i);
       }
-      glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-      shader_version = version;
-    }
 
-    decoder_unmap_texture(&texture);
-    context_end_frame(c);
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+      hw_texmap_unmap(&texture, true);
+    }
 
     av_frame_unref(decode_frame);
     av_frame_unref(transfered_frame);
+
+    context_end_frame(c);
+  }
+
+  i64 next_pts = 0;
+  for (i32 i = 0; i < 500; ++i) {
+    nassert(decoder_decode(&adec, decode_frame, SVE_DEADLINE_INF) ==
+            DECODE_SUCCESS);
+    av_channel_layout_copy(&transfered_frame->ch_layout,
+                           &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO);
+    transfered_frame->sample_rate = 48000;
+    transfered_frame->format = AV_SAMPLE_FMT_S16;
+    nassert(swr_convert_frame(swr, transfered_frame, decode_frame) >= 0);
+    transfered_frame->pts = next_pts;
+    next_pts += transfered_frame->nb_samples;
+    context_submit_audio(c, transfered_frame);
   }
 
   av_frame_free(&decode_frame);
   av_frame_free(&transfered_frame);
   swr_free(&swr);
-  sws_freeContext(sws);
   decoder_free(&vdec);
   decoder_free(&adec);
   demuxer_free(&d);
   avformat_close_input(&fc);
 
   context_free(c);
+  done_logging();
 
   return 0;
 }

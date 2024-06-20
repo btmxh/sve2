@@ -96,7 +96,7 @@ char *stream_index_to_string(i32 index, char *str, i32 bufsize) {
 
   nassert(type != AVMEDIA_TYPE_UNKNOWN);
   nassert(snprintf(str, bufsize, "%c:%" PRIi32,
-                   av_get_media_type_string(type)[0], index));
+                   av_get_media_type_string(type)[0], rel_index));
   return str;
 }
 

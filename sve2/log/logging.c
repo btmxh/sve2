@@ -6,6 +6,7 @@
 #include <threads.h>
 
 #include <libavutil/log.h>
+#include <log.h>
 
 #include "sve2/log/log_buffer.h"
 #include "sve2/utils/runtime.h"
@@ -43,6 +44,9 @@ log_buffer ffmpeg_buffer;
 
 static void init_ffmpeg_log_buffer() { log_buffer_init(&ffmpeg_buffer); }
 
+char* ffmpeg_msg = NULL;
+int ffmpeg_msg_len = 0, ffmpeg_msg_cap = 0;
+
 static void av_log_callback(void *avcl, int level, const char *fmt,
                             va_list vl) {
   if (level > av_log_get_level()) {
@@ -78,10 +82,10 @@ static void av_log_callback(void *avcl, int level, const char *fmt,
 void init_logging() {
   sve2_mtx_init(&log_mtx, mtx_plain);
   log_set_lock(lock_fn, NULL);
-  log_set_level(LOG_TRACE);
+  log_set_level(LOG_INFO);
   init_ffmpeg_log_buffer();
-  av_log_set_level(AV_LOG_TRACE);
   av_log_set_callback(av_log_callback);
+  av_log_set_level(AV_LOG_DEBUG);
 }
 
 void done_logging() {
