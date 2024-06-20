@@ -11,8 +11,8 @@ if len(sys.argv) < 3:
     print("usage: python preprocessor.py [options] [input_path] [output_path]")
     exit(1)
 
-defines = []
-include_paths = []
+defines: list[tuple[str, str]] = []
+include_paths: list[str] = []
 version = None
 i = 1
 while i < len(sys.argv) - 2:
@@ -42,13 +42,13 @@ if input_path.endswith(".vert.glsl"):
 if input_path.endswith(".frag.glsl"):
     defines.append(("SVE2_FRAGMENT_SHADER", ""))
 
-output_lines = []
+output_lines: list[str] = []
 output_lines.append(f"#version {version}\n")
 for (key, value) in defines:
     output_lines.append(f"#define {key} {value}\n")
 
 
-def resolve_include(file, paths):
+def resolve_include(file: str, paths: list[str]):
     for path in paths:
         potential_path = os.path.join(path, file)
         if os.path.exists(potential_path):
@@ -56,12 +56,12 @@ def resolve_include(file, paths):
     return None
 
 
-def preprocess_shader(input_path, include_paths, pragma_onces):
+def preprocess_shader(input_path: str, include_paths: list[str], pragma_onces: set[str]) -> list[str]:
     if input_path in pragma_onces:
         return []
-    processed_code = []
+    processed_code: list[str] = []
     with open(input_path, 'r') as file:
-        for line_no, line in enumerate(file):
+        for line in file:
             if line.strip().startswith('#include'):
                 include_file = line.split('"')[1].strip()
                 include_path = resolve_include(
