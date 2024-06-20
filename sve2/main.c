@@ -1,32 +1,10 @@
-#include <assert.h>
-
-#include <glad/egl.h>
-#include <glad/gl.h>
-#include <libavcodec/codec.h>
-#include <libavcodec/codec_id.h>
-#include <libavformat/avformat.h>
-#include <libavutil/frame.h>
-#include <libavutil/hwcontext.h>
-#include <libavutil/hwcontext_drm.h>
-#include <libavutil/pixdesc.h>
-#include <libavutil/pixfmt.h>
-#include <libavutil/samplefmt.h>
-#include <libdrm/drm_fourcc.h>
 #include <libswresample/swresample.h>
-#include <libswscale/swscale.h>
-#include <log.h>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include <stb/stb_image_write.h>
-
-#define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
-
-#include "sve2/ffmpeg/encoder.h"
-#include "sve2/ffmpeg/hw_texmap.h"
 #include "sve2/context/context.h"
 #include "sve2/ffmpeg/decoder.h"
 #include "sve2/ffmpeg/demuxer.h"
+#include "sve2/ffmpeg/encoder.h"
+#include "sve2/ffmpeg/hw_texmap.h"
 #include "sve2/gl/shader.h"
 #include "sve2/log/logging.h"
 #include "sve2/utils/runtime.h"
@@ -58,7 +36,8 @@ int main(int argc, char *argv[]) {
   demuxer_t d;
   demuxer_stream_t streams[] = {
       (demuxer_stream_t){.index = stream_index_video(0)},
-      (demuxer_stream_t){.index = stream_index_audio(0)}, };
+      (demuxer_stream_t){.index = stream_index_audio(0)},
+  };
   demuxer_init(&d, &(demuxer_init_t){.fc = fc,
                                      .streams = streams,
                                      .num_streams = sve2_arrlen(streams),
