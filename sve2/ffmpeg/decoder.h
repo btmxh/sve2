@@ -5,6 +5,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_drm.h>
+#include <libswresample/swresample.h>
 
 #include "sve2/ffmpeg/demuxer.h"
 
@@ -20,7 +21,7 @@ typedef enum {
   DECODE_EOF,
 } decode_result_t;
 
-bool decoder_init(decoder_t *d, AVFormatContext *fc, demuxer_stream_t *stream,
+bool decoder_init(decoder_t *d, demuxer_t *dm, i32 rel_stream_index,
                   bool hwaccel);
 decode_result_t decoder_decode(decoder_t *d, AVFrame *frame, i64 deadline);
 bool decoder_wait_for_seek(decoder_t *d, i64 deadline);

@@ -14,7 +14,7 @@
 #include "sve2/utils/threads.h"
 #include "sve2/utils/types.h"
 
-AVFormatContext *open_media(const char *path) {
+static inline AVFormatContext *open_media(const char *path) {
   AVFormatContext *fc = NULL;
   int err = avformat_open_input(&fc, path, NULL, NULL);
   if (err < 0) {
@@ -126,8 +126,8 @@ bool demuxer_handle_cmd(demuxer_t *d, bool *late_packet, bool *error,
       *late_packet = true;
     } else if (cmd.seek) {
       log_info("demuxer thread received seek command");
-      int err = av_seek_frame(d->init.fc, cmd.seek_stream_index,
-                              cmd.seek_offset, cmd.seek_flags);
+      int err = av_seek_frame(d->fc, cmd.seek_stream_index, cmd.seek_offset,
+                              cmd.seek_flags);
       if (err < 0) {
         *error = true;
         log_warn("unable to seek media: %s", av_err2str(err));
@@ -201,7 +201,7 @@ int demuxer_thread(void *u) {
     }
 
     while (packet_stream_index < 0) {
-      int err = av_read_frame(d->init.fc, packet);
+      int err = av_read_frame(d->fc, packet);
       if (err < 0) {
         error = err != AVERROR_EOF;
         break;
@@ -259,7 +259,7 @@ static i32 find_stream_index(AVFormatContext *fc, i32 index) {
 
   log_warn("media file only has %" PRIi32
            " %s streams, requested stream of index %" PRIi16,
-           counter, av_get_media_type_string(type), index);
+           counter, av_get_media_type_string(type), rel_index);
   return -1;
 }
 
@@ -278,14 +278,20 @@ static void init_stream(AVFormatContext *fc, demuxer_stream_t *stream,
             sizeof(packet_msg_t));
 }
 
-void demuxer_init(demuxer_t *d, const demuxer_init_t *info) {
+bool demuxer_init(demuxer_t *d, const demuxer_init_t *info) {
+  d->fc = open_media(info->path);
+  if (!d->fc) {
+    return false;
+  }
+
   d->init = *info;
   mpmc_init(&d->cmd, 0, SVE2_RB_DEFAULT_GROW, sizeof(cmd_t));
   for (i32 i = 0; i < info->num_streams; ++i) {
-    init_stream(d->init.fc, &d->init.streams[i], info->num_buffered_packets);
+    init_stream(d->fc, &d->init.streams[i], info->num_buffered_packets);
   }
 
   sve2_thrd_create(&d->thread, demuxer_thread, d);
+  return true;
 }
 
 void demuxer_cmd_exit(demuxer_t *d) {
@@ -329,4 +335,6 @@ void demuxer_free(demuxer_t *d) {
     }
     mpmc_free(&s->packet_channel);
   }
+
+  avformat_close_input(&d->fc);
 }

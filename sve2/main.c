@@ -30,24 +30,20 @@ int main(int argc, char *argv[]) {
 
   shader_t *shader = shader_new_vf(c, "y_uv.vert.glsl", "y_uv.frag.glsl");
 
-  AVFormatContext *fc = open_media(argv[1]);
-  assert(fc);
-
   demuxer_t d;
   demuxer_stream_t streams[] = {
-      (demuxer_stream_t){.index = stream_index_video(0)},
-      (demuxer_stream_t){.index = stream_index_audio(0)},
+      {.index = stream_index_video(0)},
+      {.index = stream_index_audio(0)},
   };
-  demuxer_init(&d, &(demuxer_init_t){.fc = fc,
-                                     .streams = streams,
-                                     .num_streams = sve2_arrlen(streams),
-                                     .num_buffered_packets = 8});
-  nassert(streams[0].index == 0);
-  nassert(streams[1].index == 1);
-
+  nassert(demuxer_init(&d, &(demuxer_init_t){
+                               .path = argv[1],
+                               .streams = streams,
+                               .num_streams = sve2_arrlen(streams),
+                               .num_buffered_packets = 8,
+                           }));
   decoder_t vdec, adec;
-  nassert(decoder_init(&vdec, fc, &streams[0], true));
-  nassert(decoder_init(&adec, fc, &streams[1], false));
+  nassert(decoder_init(&vdec, &d, 0, true));
+  nassert(decoder_init(&adec, &d, 1, false));
 
   demuxer_cmd_seek(&d, -1, 10 * AV_TIME_BASE, 0);
   decoder_wait_for_seek(&vdec, SVE_DEADLINE_INF);
@@ -116,7 +112,6 @@ int main(int argc, char *argv[]) {
   decoder_free(&vdec);
   decoder_free(&adec);
   demuxer_free(&d);
-  avformat_close_input(&fc);
 
   context_free(c);
   done_logging();

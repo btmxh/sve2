@@ -28,12 +28,14 @@ static enum AVPixelFormat get_format_vaapi(struct AVCodecContext *s,
   return AV_PIX_FMT_VAAPI;
 }
 
-bool decoder_init(decoder_t *d, AVFormatContext *fc, demuxer_stream_t *stream,
+bool decoder_init(decoder_t *d, demuxer_t *dm, i32 rel_stream_index,
                   bool hwaccel) {
-  d->stream = stream;
+  assert(0 <= rel_stream_index && rel_stream_index < dm->init.num_streams);
+  d->stream = &dm->init.streams[rel_stream_index];
+  assert(d->stream->index >= 0);
 
-  assert(stream->index >= 0);
-  enum AVCodecID codec_id = fc->streams[stream->index]->codecpar->codec_id;
+  enum AVCodecID codec_id =
+      dm->fc->streams[d->stream->index]->codecpar->codec_id;
   const AVCodec *codec = avcodec_find_decoder(codec_id);
   if (!codec) {
     log_warn("unable to find decoder for codec %s", avcodec_get_name(codec_id));
@@ -42,10 +44,10 @@ bool decoder_init(decoder_t *d, AVFormatContext *fc, demuxer_stream_t *stream,
 
   nassert(d->cc = avcodec_alloc_context3(codec));
   nassert(avcodec_parameters_to_context(
-              d->cc, fc->streams[stream->index]->codecpar) >= 0);
+              d->cc, dm->fc->streams[d->stream->index]->codecpar) >= 0);
 
   if (hwaccel) {
-    if (fc->streams[stream->index]->codecpar->codec_type !=
+    if (dm->fc->streams[d->stream->index]->codecpar->codec_type !=
         AVMEDIA_TYPE_VIDEO) {
       log_warn("HW accelerated decoding is only supported for video codecs");
     }
@@ -68,7 +70,8 @@ bool decoder_init(decoder_t *d, AVFormatContext *fc, demuxer_stream_t *stream,
   }
 
   log_info("AVCodecContext %p initialized for stream %s of AVFormatContext %p",
-           (const void *)d->cc, sve2_si2str(stream->index), (const void *)fc);
+           (const void *)d->cc, sve2_si2str(d->stream->index),
+           (const void *)dm->fc);
 
   return true;
 }

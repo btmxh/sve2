@@ -11,13 +11,14 @@ typedef struct {
 } demuxer_stream_t;
 
 typedef struct {
-  AVFormatContext *fc;
+  const char *path;
   demuxer_stream_t *streams;
   i32 num_streams;
   i32 num_buffered_packets;
 } demuxer_init_t;
 
 typedef struct {
+  AVFormatContext *fc;
   demuxer_init_t init;
   thrd_t thread;
   mpmc_t cmd;
@@ -31,8 +32,6 @@ typedef struct {
   bool seek : 1;
 } packet_msg_t;
 
-AVFormatContext *open_media(const char *path);
-
 i32 stream_index_regular(i16 index);
 i32 stream_index_video(i16 index);
 i32 stream_index_audio(i16 index);
@@ -44,7 +43,7 @@ char *stream_index_to_string(i32 index, char *str, i32 bufsize);
   stream_index_to_string(index, (char[STREAM_INDEX_STRING_MAX_LENGTH]){0},     \
                          STREAM_INDEX_STRING_MAX_LENGTH)
 
-void demuxer_init(demuxer_t *d, const demuxer_init_t *info);
+bool demuxer_init(demuxer_t *d, const demuxer_init_t *info);
 void demuxer_cmd_exit(demuxer_t *d);
 void demuxer_cmd_late_packet(demuxer_t *d);
 void demuxer_cmd_seek(demuxer_t *d, i32 stream_index, i64 offset, int flags);
