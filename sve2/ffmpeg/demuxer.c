@@ -138,6 +138,10 @@ bool demuxer_handle_cmd(demuxer_t *d, bool *late_packet, bool *error,
       *packet_stream_index = -1;
 
       for (i32 i = 0; i < d->init.num_streams; ++i) {
+        if (d->init.streams[i].index < 0) {
+          continue;
+        }
+
         log_trace("sending seek packet message to stream %s",
                   sve2_si2str(d->init.streams[i].index));
         nassert(mpmc_send(&d->init.streams[i].packet_channel,
@@ -151,6 +155,10 @@ bool demuxer_handle_cmd(demuxer_t *d, bool *late_packet, bool *error,
 
 bool demuxer_should_send(demuxer_t *d) {
   for (i32 i = 0; i < d->init.num_streams; ++i) {
+    if (d->init.streams[i].index < 0) {
+      continue;
+    }
+
     if (mpmc_len(&d->init.streams[i].packet_channel) <
         d->init.num_buffered_packets) {
       return true;
@@ -224,6 +232,10 @@ int demuxer_thread(void *u) {
 
   av_packet_free(&packet);
   for (i32 i = 0; i < d->init.num_streams; ++i) {
+    if (d->init.streams[i].index < 0) {
+      continue;
+    }
+
     mpmc_send(&d->init.streams[i].packet_channel,
               &(packet_msg_t){
                   .error = error,
@@ -281,6 +293,7 @@ static void init_stream(AVFormatContext *fc, demuxer_stream_t *stream,
 bool demuxer_init(demuxer_t *d, const demuxer_init_t *info) {
   d->fc = open_media(info->path);
   if (!d->fc) {
+    log_warn("unable to open AVFormatContext for media path '%s'", info->path);
     return false;
   }
 

@@ -37,7 +37,7 @@ typedef struct context_t {
   context_init_t info;
   GLFWwindow *window;
   shader_manager_t sman;
-  i32 frame_num;
+  i32 frame_num, num_samples;
   f32 xscale, yscale;
   void *user_ptr;
   render_context_t rctx;
@@ -55,7 +55,7 @@ void context_get_framebuffer_info(context_t *c, i32 *w, i32 *h, f32 *xscale,
 void context_begin_frame(context_t *c);
 void context_end_frame(context_t *c);
 GLuint context_default_framebuffer(context_t *c);
-void context_submit_audio(context_t *c, const AVFrame *audio_frame);
+void context_submit_audio(context_t *c, AVFrame *audio_frame);
 
 void context_set_user_pointer(context_t *c, void *u);
 void *context_get_user_pointer(GLFWwindow *window);

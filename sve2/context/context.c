@@ -10,6 +10,7 @@
 
 #include "sve2/ffmpeg/muxer.h"
 #include "sve2/gl/shader.h"
+#include "sve2/log/logging.h"
 #include "sve2/utils/runtime.h"
 #include "sve2/utils/threads.h"
 
@@ -116,9 +117,13 @@ enum {
 };
 
 context_t *context_init(const context_init_t *info) {
+  init_logging();
+  init_threads_timer();
+
   context_t *c = sve2_calloc(1, sizeof *c);
   c->info = *info;
   c->frame_num = 0;
+  c->num_samples = 0;
   c->xscale = 1.0;
   c->yscale = 1.0;
 
@@ -212,6 +217,8 @@ void context_free(context_t *c) {
   free(c);
   glfwTerminate(); // free all windowing + OpenGL stuff,
                    // no need to manually free every resource
+
+  done_logging();
 }
 
 void context_set_should_close(context_t *c, bool should_close) {
@@ -293,10 +300,14 @@ GLuint context_default_framebuffer(context_t *c) {
   return c->info.mode == CONTEXT_MODE_RENDER ? c->rctx.fbo : 0;
 }
 
-void context_submit_audio(context_t *c, const AVFrame *audio_frame) {
+void context_submit_audio(context_t *c, AVFrame *audio_frame) {
   if (c->info.mode == CONTEXT_MODE_RENDER) {
+    audio_frame->pts = c->num_samples;
+    c->num_samples += audio_frame->nb_samples;
     muxer_submit_frame(&c->rctx.muxer, audio_frame, c->rctx.audio_si);
   }
+
+  av_frame_unref(audio_frame);
 }
 
 void context_set_user_pointer(context_t *c, void *u) { c->user_ptr = u; }
