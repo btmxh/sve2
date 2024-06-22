@@ -10,15 +10,17 @@ int main(int argc, char *argv[]) {
     raw_log_panic("usage: %s <media file>\n", argv[0]);
   }
 
+  AVChannelLayout ch_layout = AV_CHANNEL_LAYOUT_STEREO;
+
   context_t *c;
-  nassert(c = context_init(&(context_init_t){
-              .mode = CONTEXT_MODE_RENDER,
-              .width = 1920,
-              .height = 1080,
-              .fps = 75,
-              .output_path = "output.mkv",
-              .sample_rate = 48000,
-          }));
+  nassert(c = context_init(&(context_init_t){.mode = CONTEXT_MODE_PREVIEW,
+                                             .width = 1920,
+                                             .height = 1080,
+                                             .fps = 75,
+                                             .output_path = "output.mkv",
+                                             .sample_rate = 48000,
+                                             .sample_fmt = AV_SAMPLE_FMT_S16,
+                                             .ch_layout = &ch_layout}));
 
   shader_t *shader = shader_new_vf(c, "y_uv.vert.glsl", "y_uv.frag.glsl");
 

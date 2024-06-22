@@ -12,6 +12,7 @@
 #include "sve2/utils/threads.h"
 
 bool media_open(media_t *media, context_t *context, const char *path) {
+  media->context = context;
   media->streams[MEDIA_STREAM_VIDEO].index = stream_index_video(0);
   media->streams[MEDIA_STREAM_AUDIO].index = stream_index_audio(0);
   media->streams[MEDIA_STREAM_SUBS].index = stream_index_subs(0);
@@ -37,9 +38,9 @@ bool media_open(media_t *media, context_t *context, const char *path) {
 
     if (i == MEDIA_STREAM_AUDIO) {
       nassert(swr_alloc_set_opts2(
-                  &media->audio_resampler,
-                  &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO, AV_SAMPLE_FMT_S16,
-                  context->info.sample_rate, &media->decoder[i].cc->ch_layout,
+                  &media->audio_resampler, context->info.ch_layout,
+                  context->info.sample_fmt, context->info.sample_rate,
+                  &media->decoder[i].cc->ch_layout,
                   media->decoder[i].cc->sample_fmt,
                   media->decoder[i].cc->sample_rate, 0, NULL) >= 0);
       nassert(media->audio_resampler);
@@ -104,10 +105,9 @@ decode_result_t media_get_audio_frame(media_t *media, AVFrame *frame) {
   decode_result_t err = decoder_decode(&media->decoder[MEDIA_STREAM_AUDIO],
                                        media->transfer_frame, SVE_DEADLINE_INF);
   if (err == DECODE_SUCCESS) {
-    av_channel_layout_copy(&frame->ch_layout,
-                           &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO);
-    frame->sample_rate = 48000;
-    frame->format = AV_SAMPLE_FMT_S16;
+    av_channel_layout_copy(&frame->ch_layout, media->context->info.ch_layout);
+    frame->sample_rate = media->context->info.sample_rate;
+    frame->format = media->context->info.sample_fmt;
     nassert(swr_convert_frame(media->audio_resampler, frame,
                               media->transfer_frame) >= 0);
     av_frame_unref(media->transfer_frame);

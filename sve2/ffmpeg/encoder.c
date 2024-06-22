@@ -22,7 +22,6 @@
 #define VIDEO_BPP 1.0
 #define VIDEO_PIX_FMT AV_PIX_FMT_VAAPI
 #define VIDEO_SW_PIX_FMT AV_PIX_FMT_NV12
-#define AUDIO_SAMPLE_FMT AV_SAMPLE_FMT_S16
 
 static void default_encoder_config_fn(AVCodecContext *ctx, void *userptr) {
   context_t *c = (context_t *)userptr;
@@ -55,16 +54,14 @@ static void default_encoder_config_fn(AVCodecContext *ctx, void *userptr) {
     ctx->max_b_frames = 0;
     break;
   case AVMEDIA_TYPE_AUDIO:
-    ctx->sample_fmt = AUDIO_SAMPLE_FMT;
+    ctx->sample_fmt = c->info.sample_fmt;
     ctx->sample_rate = sample_rate;
     ctx->bit_rate = 320000;
     ctx->time_base = (AVRational){1, sample_rate};
-    nassert(av_channel_layout_copy(
-                &ctx->ch_layout, &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO) >=
-            0);
+    nassert(av_channel_layout_copy(&ctx->ch_layout, c->info.ch_layout) >= 0);
     log_info(
         "initializing audio encoder with sr=%d, br=%" PRIi64 ", samplefmt=%s",
-        sample_rate, ctx->bit_rate, av_get_sample_fmt_name(AUDIO_SAMPLE_FMT));
+        sample_rate, ctx->bit_rate, av_get_sample_fmt_name(ctx->sample_fmt));
     break;
   default:
     log_warn("initializing %s encoder with no parameters",

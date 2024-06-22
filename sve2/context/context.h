@@ -20,6 +20,8 @@ typedef enum { CONTEXT_MODE_PREVIEW, CONTEXT_MODE_RENDER } context_mode_t;
 typedef struct {
   context_mode_t mode;
   i32 width, height, fps, sample_rate;
+  const AVChannelLayout* ch_layout;
+  enum AVSampleFormat sample_fmt;
   const char *output_path;
 } context_init_t;
 
