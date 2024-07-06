@@ -20,6 +20,7 @@ int main(int argc, char *argv[]) {
                                              .output_path = "output.mkv",
                                              .sample_rate = 48000,
                                              .sample_fmt = AV_SAMPLE_FMT_S16,
+                                             .num_buffered_audio_frames = 4,
                                              .ch_layout = &ch_layout}));
 
   shader_t *shader = shader_new_vf(c, "y_uv.vert.glsl", "y_uv.frag.glsl");
@@ -29,8 +30,11 @@ int main(int argc, char *argv[]) {
   media_seek(&media, 10 * SVE2_NS_PER_SEC);
 
   hw_texture_t texture;
-  for (i32 j = 0;
-       j < 100 && media_map_video_texture(&media, &texture) == DECODE_SUCCESS;
+
+  AVFrame *audio_frame = av_frame_alloc();
+  nassert(audio_frame);
+  for (i32 j = 0; media_map_video_texture(&media, &texture) == DECODE_SUCCESS &&
+                  !context_get_should_close(c);
        ++j) {
     context_begin_frame(c);
 
@@ -50,15 +54,17 @@ int main(int argc, char *argv[]) {
     }
 
     media_unmap_video_texture(&media, &texture);
-    context_end_frame(c);
-  }
+    while (!context_audio_full(c)) {
+      decode_result_t result = media_get_audio_frame(&media, audio_frame);
+      nassert(result != DECODE_ERROR && result != DECODE_TIMEOUT);
+      if (result == DECODE_EOF) {
+        context_submit_audio_eof(c);
+      } else {
+        context_submit_audio(c, audio_frame);
+      }
+    }
 
-  AVFrame *audio_frame = av_frame_alloc();
-  nassert(audio_frame);
-  for (i32 i = 0;
-       i < 500 && media_get_audio_frame(&media, audio_frame) == DECODE_SUCCESS;
-       ++i) {
-    context_submit_audio(c, audio_frame);
+    context_end_frame(c);
   }
 
   av_frame_free(&audio_frame);

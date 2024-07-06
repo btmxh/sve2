@@ -76,13 +76,9 @@ bool decoder_init(decoder_t *d, demuxer_t *dm, i32 rel_stream_index,
   return true;
 }
 
-static inline bool is_eof_or_eagain(int e) {
-  return e == AVERROR_EOF || e == AVERROR(EAGAIN);
-}
-
 decode_result_t decoder_decode(decoder_t *d, AVFrame *frame, i64 deadline) {
   int err;
-  while (is_eof_or_eagain(err = avcodec_receive_frame(d->cc, frame))) {
+  while ((err = avcodec_receive_frame(d->cc, frame)) == AVERROR(EAGAIN)) {
     packet_msg_t pkt;
     if (!mpmc_recv(&d->stream->packet_channel, &pkt, deadline)) {
       return DECODE_TIMEOUT;
@@ -90,11 +86,16 @@ decode_result_t decoder_decode(decoder_t *d, AVFrame *frame, i64 deadline) {
 
     if (pkt.regular || pkt.eof) {
       AVPacket *p = pkt.packet;
-      log_trace("send packet %p to AVCodecContext %p: pts=%" PRId64
-                ", dts=%" PRId64 ", duration=%" PRId64
-                ", si=%d, size=%d, flags=%d",
-                (const void *)p, (const void *)d->cc, p->pts, p->dts,
-                p->duration, p->stream_index, p->size, p->flags);
+      if (p) {
+        log_trace("send packet %p to AVCodecContext %p: pts=%" PRId64
+                  ", dts=%" PRId64 ", duration=%" PRId64
+                  ", si=%d, size=%d, flags=%d",
+                  (const void *)p, (const void *)d->cc, p->pts, p->dts,
+                  p->duration, p->stream_index, p->size, p->flags);
+      } else {
+        log_trace("send EOF packet to AVCodecContext %p", (const void *)d->cc);
+      }
+
       err = avcodec_send_packet(d->cc, p);
       if (err < 0) {
         log_warn("unable to send packet: %s", av_err2str(err));

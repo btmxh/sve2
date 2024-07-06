@@ -1,18 +1,23 @@
 #include "context.h"
 
 #include <stdlib.h>
+#include <threads.h>
 
 #include <GLFW/glfw3.h>
 #include <glad/egl.h>
 #include <libavcodec/codec.h>
+#include <libavutil/audio_fifo.h>
 #include <libavutil/frame.h>
 #include <log.h>
 
+#include "sve2/ffmpeg/hw_texmap.h"
 #include "sve2/ffmpeg/muxer.h"
 #include "sve2/gl/shader.h"
 #include "sve2/log/logging.h"
+#include "sve2/utils/minmax.h"
 #include "sve2/utils/runtime.h"
 #include "sve2/utils/threads.h"
+#include "sve2/utils/types.h"
 
 #define GLFW_EXPOSE_NATIVE_EGL
 #include <GLFW/glfw3native.h>
@@ -116,6 +121,16 @@ enum {
   OUT_AUDIO_SI = 1,
 };
 
+void ma_data_callback(ma_device *device, void *output, const void *input,
+                      u32 nb_frames) {
+  (void)input;
+  context_t *c = (context_t *)device->pUserData;
+  sve2_mtx_lock(&c->audio_fifo_mutex);
+  i32 num_read = sve2_min_i32(nb_frames, av_audio_fifo_size(c->audio_fifo));
+  nassert_ffmpeg(av_audio_fifo_read(c->audio_fifo, &output, num_read));
+  sve2_mtx_unlock(&c->audio_fifo_mutex);
+}
+
 context_t *context_init(const context_init_t *info) {
   init_logging();
   init_threads_timer();
@@ -197,6 +212,22 @@ context_t *context_init(const context_init_t *info) {
     glCreateTextures(GL_TEXTURE_2D, 1, &c->rctx.output_texture);
     glTextureStorage2D(c->rctx.output_texture, 1, GL_R8, nv12_width,
                        nv12_height);
+  } else {
+    i32 num_samples =
+        c->info.sample_rate / c->info.fps * c->info.num_buffered_audio_frames;
+    nassert(c->audio_fifo = av_audio_fifo_alloc(c->info.sample_fmt,
+                                                c->info.ch_layout->nb_channels,
+                                                num_samples));
+    sve2_mtx_init(&c->audio_fifo_mutex, mtx_plain);
+
+    ma_device_config config = ma_device_config_init(ma_device_type_playback);
+    config.playback.format = ma_format_s16;
+    config.playback.channels = c->info.ch_layout->nb_channels;
+    config.sampleRate = c->info.sample_rate;
+    config.dataCallback = ma_data_callback;
+    config.pUserData = c;
+    nassert(ma_device_init(NULL, &config, &c->audio_device) == MA_SUCCESS);
+    nassert(ma_device_start(&c->audio_device) == MA_SUCCESS);
   }
 
   return c;
@@ -211,6 +242,12 @@ void context_free(context_t *c) {
     glDeleteTextures(1, &c->rctx.output_texture);
     glDeleteTextures(1, &c->rctx.fbo_color_attachment);
     glDeleteFramebuffers(1, &c->rctx.fbo);
+  } else {
+    context_submit_audio_eof(c);
+    ma_device_uninit(&c->audio_device);
+
+    mtx_destroy(&c->audio_fifo_mutex);
+    av_audio_fifo_free(c->audio_fifo);
   }
 
   shader_manager_free(&c->sman);
@@ -231,12 +268,10 @@ bool context_get_should_close(context_t *c) {
 
 i64 context_get_time(context_t *c) {
   switch (c->info.mode) {
-  case CONTEXT_MODE_PREVIEW:
-    return threads_timer_now();
   case CONTEXT_MODE_RENDER:
     return (i64)c->frame_num * SVE2_NS_PER_SEC / c->info.fps;
   default:
-    unreachable();
+    return threads_timer_now();
   }
 }
 
@@ -300,16 +335,37 @@ GLuint context_default_framebuffer(context_t *c) {
   return c->info.mode == CONTEXT_MODE_RENDER ? c->rctx.fbo : 0;
 }
 
+bool context_audio_full(context_t *c) {
+  sve2_mtx_lock(&c->audio_fifo_mutex);
+  i32 nb_samples =
+      c->info.sample_rate / c->info.fps * c->info.num_buffered_audio_frames;
+  bool full = av_audio_fifo_size(c->audio_fifo) >= nb_samples;
+  sve2_mtx_unlock(&c->audio_fifo_mutex);
+  return full;
+}
+
 void context_submit_audio(context_t *c, AVFrame *audio_frame) {
   if (c->info.mode == CONTEXT_MODE_RENDER) {
     audio_frame->pts = c->num_samples;
-    c->num_samples += audio_frame->nb_samples;
     muxer_submit_frame(&c->rctx.muxer, audio_frame, c->rctx.audio_si);
+  } else {
+    sve2_mtx_lock(&c->audio_fifo_mutex);
+    av_audio_fifo_write(c->audio_fifo, (void *const *)audio_frame->data,
+                        audio_frame->nb_samples);
+    sve2_mtx_unlock(&c->audio_fifo_mutex);
   }
 
+  c->num_samples += audio_frame->nb_samples;
   av_frame_unref(audio_frame);
 }
 
+void context_submit_audio_eof(context_t *c) {
+  if (c->info.mode == CONTEXT_MODE_PREVIEW) {
+    sve2_mtx_lock(&c->audio_fifo_mutex);
+    c->audio_eof = true;
+    sve2_mtx_unlock(&c->audio_fifo_mutex);
+  }
+}
 void context_set_user_pointer(context_t *c, void *u) { c->user_ptr = u; }
 
 void *context_get_user_pointer(GLFWwindow *window) {
