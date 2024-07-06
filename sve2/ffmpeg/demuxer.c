@@ -212,7 +212,7 @@ int demuxer_thread(void *u) {
       int err = av_read_frame(d->fc, packet);
       if (err < 0) {
         error = err != AVERROR_EOF;
-        break;
+        goto end;
       }
 
       dump_avpacket_info(packet);
@@ -230,6 +230,7 @@ int demuxer_thread(void *u) {
     }
   }
 
+end:
   av_packet_free(&packet);
   for (i32 i = 0; i < d->init.num_streams; ++i) {
     if (d->init.streams[i].index < 0) {
