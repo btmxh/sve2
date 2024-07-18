@@ -146,7 +146,7 @@ static void gl_to_drm_prime(hw_texture_t *texture, AVFrame *prime) {
     texture->vaapi_fds[i] = -1;
   }
 
-  if(sw_format == AV_PIX_FMT_NV12) {
+  if (sw_format == AV_PIX_FMT_NV12) {
     // NV12-specific hacks
     i32 uv_offset_y = prime->height;
     hw_align_size(NULL, &uv_offset_y);
@@ -154,10 +154,10 @@ static void gl_to_drm_prime(hw_texture_t *texture, AVFrame *prime) {
     frame->layers[1].format = DRM_FORMAT_RG88;
     frame->layers[1].planes[0].object_index = 0;
     frame->layers[1].planes[0].offset =
-      frame->layers[0].planes[0].pitch * uv_offset_y;
+        frame->layers[0].planes[0].pitch * uv_offset_y;
     frame->objects[0].size =
-      frame->layers[0].planes[0].pitch *
-      (prime->height / 2 + frame->layers[1].planes[0].offset);
+        frame->layers[0].planes[0].pitch *
+        (prime->height / 2 + frame->layers[1].planes[0].offset);
     frame->layers[1].planes[0].pitch = frame->layers[0].planes[0].pitch;
     ++frame->nb_layers;
   }
@@ -189,8 +189,8 @@ hw_texture_t hw_texture_from_gl(enum AVPixelFormat format, i32 num_textures,
 void hw_texmap_to_gl(const AVFrame *src, AVFrame *prime,
                      hw_texture_t *texture) {
   prime->format = AV_PIX_FMT_DRM_PRIME;
-  nassert(av_hwframe_map(prime, src,
-                         AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT) >= 0);
+  nassert_ffmpeg(
+      av_hwframe_map(prime, src, AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT));
   drm_prime_to_gl(prime, texture);
   av_frame_unref(prime);
 }
