@@ -65,6 +65,7 @@ void context_begin_frame(context_t *c);
 void context_end_frame(context_t *c);
 GLuint context_default_framebuffer(context_t *c);
 
+i64 context_get_audio_timer(context_t *c);
 bool context_audio_full(context_t *c);
 void context_submit_audio(context_t *c, AVFrame *audio_frame);
 void context_submit_audio_eof(context_t *c);

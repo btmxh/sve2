@@ -16,7 +16,7 @@ int main(int argc, char *argv[]) {
   nassert(c = context_init(&(context_init_t){.mode = CONTEXT_MODE_PREVIEW,
                                              .width = 1920,
                                              .height = 1080,
-                                             .fps = 75,
+                                             .fps = 60,
                                              .output_path = "output.mkv",
                                              .sample_rate = 48000,
                                              .sample_fmt = AV_SAMPLE_FMT_S16,
@@ -27,13 +27,17 @@ int main(int argc, char *argv[]) {
 
   media_t media;
   nassert(media_open(&media, c, argv[1]));
-  media_seek(&media, 10 * SVE2_NS_PER_SEC);
+  media_seek(&media, 115 * SVE2_NS_PER_SEC);
 
   hw_texture_t texture;
 
   AVFrame *audio_frame = av_frame_alloc();
   nassert(audio_frame);
-  for (i32 j = 0; media_map_video_texture(&media, &texture) == DECODE_SUCCESS &&
+  i64 time;
+  for (i32 j = 0; media_get_video_texture(&media, &texture,
+                                          (time = context_get_audio_timer(c) +
+                                                  115 * SVE2_NS_PER_SEC)) ==
+                      DECODE_SUCCESS &&
                   !context_get_should_close(c);
        ++j) {
     context_begin_frame(c);
@@ -50,18 +54,17 @@ int main(int argc, char *argv[]) {
       }
 
       glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-      hw_texmap_unmap(&texture, true);
     }
 
-    media_unmap_video_texture(&media, &texture);
-    while (!context_audio_full(c)) {
-      decode_result_t result = media_get_audio_frame(&media, audio_frame);
+    decode_result_t result;
+    while (!context_audio_full(c) &&
+           (result = media_get_audio_frame(&media, audio_frame, time)) !=
+               DECODE_EOF) {
       nassert(result != DECODE_ERROR && result != DECODE_TIMEOUT);
-      if (result == DECODE_EOF) {
-        context_submit_audio_eof(c);
-      } else {
-        context_submit_audio(c, audio_frame);
-      }
+      context_submit_audio(c, audio_frame);
+    }
+    if (result == DECODE_EOF) {
+      context_submit_audio_eof(c);
     }
 
     context_end_frame(c);

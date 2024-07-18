@@ -335,6 +335,14 @@ GLuint context_default_framebuffer(context_t *c) {
   return c->info.mode == CONTEXT_MODE_RENDER ? c->rctx.fbo : 0;
 }
 
+i64 context_get_audio_timer(context_t *c) {
+  sve2_mtx_lock(&c->audio_fifo_mutex);
+  i32 num_buffered_samples = av_audio_fifo_size(c->audio_fifo);
+  i32 time = c->num_samples - num_buffered_samples;
+  sve2_mtx_unlock(&c->audio_fifo_mutex);
+  return (i64)time * SVE2_NS_PER_SEC / c->info.sample_rate;
+}
+
 bool context_audio_full(context_t *c) {
   sve2_mtx_lock(&c->audio_fifo_mutex);
   i32 nb_samples =
