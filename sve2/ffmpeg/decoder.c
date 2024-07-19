@@ -32,6 +32,7 @@ bool decoder_init(decoder_t *d, demuxer_t *dm, i32 rel_stream_index,
                   bool hwaccel) {
   assert(0 <= rel_stream_index && rel_stream_index < dm->init.num_streams);
   d->stream = &dm->init.streams[rel_stream_index];
+  d->eof = false;
   assert(d->stream->index >= 0);
 
   enum AVCodecID codec_id =
@@ -121,6 +122,7 @@ decode_result_t decoder_decode(decoder_t *d, AVFrame *frame, i64 deadline) {
   if (err >= 0) {
     return DECODE_SUCCESS;
   } else if (err == AVERROR_EOF) {
+    d->eof = true;
     return DECODE_EOF;
   } else {
     log_warn("error while decoding: %s", av_err2str(err));
@@ -129,6 +131,7 @@ decode_result_t decoder_decode(decoder_t *d, AVFrame *frame, i64 deadline) {
 }
 
 bool decoder_wait_for_seek(decoder_t *d, i64 deadline) {
+  d->eof = false;
   packet_msg_t msg;
   do {
     if (!mpmc_recv(&d->stream->packet_channel, &msg, deadline)) {
@@ -141,6 +144,8 @@ bool decoder_wait_for_seek(decoder_t *d, i64 deadline) {
   } while (!msg.seek);
   return true;
 }
+
+bool decoder_eof(const decoder_t *d) { return d->eof; }
 
 enum AVPixelFormat decoder_get_sw_format(const decoder_t *d) {
   const AVBufferRef *hw_frames_ctx_buf = d->cc->hw_frames_ctx;

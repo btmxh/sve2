@@ -12,6 +12,7 @@
 typedef struct {
   demuxer_stream_t *stream;
   AVCodecContext *cc;
+  bool eof;
 } decoder_t;
 
 typedef enum {
@@ -25,5 +26,6 @@ bool decoder_init(decoder_t *d, demuxer_t *dm, i32 rel_stream_index,
                   bool hwaccel);
 decode_result_t decoder_decode(decoder_t *d, AVFrame *frame, i64 deadline);
 bool decoder_wait_for_seek(decoder_t *d, i64 deadline);
+bool decoder_eof(const decoder_t *d);
 enum AVPixelFormat decoder_get_sw_format(const decoder_t *d);
 void decoder_free(decoder_t *d);
