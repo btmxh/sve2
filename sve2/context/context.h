@@ -42,7 +42,11 @@ typedef struct context_t {
   context_init_t info;
   GLFWwindow *window;
   shader_manager_t sman;
-  i32 frame_num, num_samples;
+  i32 frame_num;
+  // num_samples is the total number of samples:
+  // preview mode: total samples played since last seek
+  // render mode: total samples played since last frame
+  i32 num_samples;
   f32 xscale, yscale;
   void *user_ptr;
   render_context_t rctx;
@@ -50,6 +54,7 @@ typedef struct context_t {
   mtx_t audio_fifo_mutex;
   bool audio_eof;
   AVAudioFifo *audio_fifo;
+  i64 audio_timer_offset;
 } context_t;
 
 context_t *context_init(const context_init_t *info);
@@ -65,6 +70,7 @@ void context_begin_frame(context_t *c);
 void context_end_frame(context_t *c);
 GLuint context_default_framebuffer(context_t *c);
 
+void context_set_audio_timer(context_t *c, i64 time);
 i64 context_get_audio_timer(context_t *c);
 bool context_audio_full(context_t *c);
 void context_submit_audio(context_t *c, AVFrame *audio_frame);

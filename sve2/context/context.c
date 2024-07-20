@@ -311,6 +311,7 @@ void context_begin_frame(context_t *c) {
 
   if (c->info.mode == CONTEXT_MODE_RENDER) {
     glBindFramebuffer(GL_FRAMEBUFFER, c->rctx.fbo);
+    c->num_samples = 0;
   }
 
   i32 width, height;
@@ -354,21 +355,33 @@ GLuint context_default_framebuffer(context_t *c) {
   return c->info.mode == CONTEXT_MODE_RENDER ? c->rctx.fbo : 0;
 }
 
+void context_set_audio_timer(context_t *c, i64 time) {
+  sve2_mtx_lock(&c->audio_fifo_mutex);
+  c->num_samples = 0;
+  c->audio_timer_offset = time;
+  sve2_mtx_unlock(&c->audio_fifo_mutex);
+}
+
 i64 context_get_audio_timer(context_t *c) {
   sve2_mtx_lock(&c->audio_fifo_mutex);
   i32 num_buffered_samples = av_audio_fifo_size(c->audio_fifo);
   i32 time = c->num_samples - num_buffered_samples;
   sve2_mtx_unlock(&c->audio_fifo_mutex);
-  return (i64)time * SVE2_NS_PER_SEC / c->info.sample_rate;
+  return c->audio_timer_offset +
+         (i64)time * SVE2_NS_PER_SEC / c->info.sample_rate;
 }
 
 bool context_audio_full(context_t *c) {
-  sve2_mtx_lock(&c->audio_fifo_mutex);
-  i32 nb_samples =
-      c->info.sample_rate / c->info.fps * c->info.num_buffered_audio_frames;
-  bool full = av_audio_fifo_size(c->audio_fifo) >= nb_samples;
-  sve2_mtx_unlock(&c->audio_fifo_mutex);
-  return full;
+  if (c->info.mode == CONTEXT_MODE_RENDER) {
+    return c->num_samples >= c->info.sample_rate / c->info.fps;
+  } else {
+    sve2_mtx_lock(&c->audio_fifo_mutex);
+    i32 nb_samples =
+        c->info.sample_rate / c->info.fps * c->info.num_buffered_audio_frames;
+    bool full = av_audio_fifo_size(c->audio_fifo) >= nb_samples;
+    sve2_mtx_unlock(&c->audio_fifo_mutex);
+    return full;
+  }
 }
 
 void context_submit_audio(context_t *c, AVFrame *audio_frame) {

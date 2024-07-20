@@ -32,31 +32,28 @@ int main(int argc, char *argv[]) {
   i64 seek_time = 115 * SVE2_NS_PER_SEC;
   media_stream_seek(&video, seek_time);
   media_stream_seek(&audio, seek_time);
+  context_set_audio_timer(c, seek_time);
 
-  for (i32 j = 0; !context_get_should_close(c) && !media_stream_eof(&video) &&
-                  !media_stream_eof(&audio);
+  for (i32 j = 0; !context_get_should_close(c) &&
+                  !(media_stream_eof(&video) && media_stream_eof(&audio));
        ++j) {
     context_begin_frame(c);
-    i64 time = context_get_audio_timer(c) + seek_time;
+    i64 time = context_get_audio_timer(c);
     {
       hw_texture_t texture;
       decode_result_t result = media_get_video_texture(&video, &texture, time);
-      if (result == DECODE_SUCCESS) {
-        if (shader_use(shader) >= 0) {
-          for (i32 i = 0; i < sve2_arrlen(texture.textures); ++i) {
-            if (!texture.textures[i]) {
-              continue;
-            }
-            glActiveTexture(GL_TEXTURE0 + i);
-            glBindTexture(GL_TEXTURE_2D, texture.textures[i]);
-            log_trace("binding texture %u to bind slot %" PRIi32,
-                      texture.textures[i], i);
+      nassert(result != DECODE_ERROR);
+      if (result == DECODE_SUCCESS && shader_use(shader) >= 0) {
+        for (i32 i = 0; i < sve2_arrlen(texture.textures); ++i) {
+          if (!texture.textures[i]) {
+            continue;
           }
-
-          glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+          glActiveTexture(GL_TEXTURE0 + i);
+          glBindTexture(GL_TEXTURE_2D, texture.textures[i]);
+          log_trace("binding texture %u to bind slot %" PRIi32,
+                    texture.textures[i], i);
         }
-      } else if (result == DECODE_ERROR) {
-        log_error("error decoding video");
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
       }
     }
     {
