@@ -43,7 +43,7 @@ log_buffer ffmpeg_buffer;
 
 static void init_ffmpeg_log_buffer() { log_buffer_init(&ffmpeg_buffer); }
 
-char* ffmpeg_msg = NULL;
+char *ffmpeg_msg = NULL;
 int ffmpeg_msg_len = 0, ffmpeg_msg_cap = 0;
 
 static void av_log_callback(void *avcl, int level, const char *fmt,
@@ -78,15 +78,18 @@ static void av_log_callback(void *avcl, int level, const char *fmt,
   log_buffer_log(&ffmpeg_buffer, level, __FILE__, __LINE__, fmt, vl);
 }
 
+static int get_log_level() {
+  const char *env = getenv("LOG_LEVEL");
+  return env ? atoi(env) : 0;
+}
+
 void init_logging() {
   sve2_mtx_init(&log_mtx, mtx_plain);
   log_set_lock(lock_fn, NULL);
-  log_set_level(LOG_INFO);
+  log_set_level(get_log_level());
   init_ffmpeg_log_buffer();
   av_log_set_callback(av_log_callback);
   av_log_set_level(AV_LOG_DEBUG);
 }
 
-void done_logging() {
-  log_buffer_free(&ffmpeg_buffer);
-}
+void done_logging() { log_buffer_free(&ffmpeg_buffer); }
