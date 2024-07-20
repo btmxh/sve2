@@ -8,6 +8,7 @@
 #include <libavcodec/codec.h>
 #include <libavutil/audio_fifo.h>
 #include <libavutil/frame.h>
+#include <libavutil/samplefmt.h>
 #include <log.h>
 
 #include "sve2/ffmpeg/hw_texmap.h"
@@ -131,14 +132,27 @@ void ma_data_callback(ma_device *device, void *output, const void *input,
   sve2_mtx_unlock(&c->audio_fifo_mutex);
 }
 
+static ma_format get_ma_sample_format(enum AVSampleFormat format) {
+  switch (format) {
+  case AV_SAMPLE_FMT_U8:
+    return ma_format_u8;
+  case AV_SAMPLE_FMT_S16:
+    return ma_format_s16;
+  case AV_SAMPLE_FMT_S32:
+    return ma_format_s32;
+  case AV_SAMPLE_FMT_FLT:
+    return ma_format_f32;
+  default:
+    return ma_format_unknown;
+  }
+}
+
 context_t *context_init(const context_init_t *info) {
   init_logging();
   init_threads_timer();
 
   context_t *c = sve2_calloc(1, sizeof *c);
   c->info = *info;
-  c->frame_num = 0;
-  c->num_samples = 0;
   c->xscale = 1.0;
   c->yscale = 1.0;
 
@@ -221,7 +235,12 @@ context_t *context_init(const context_init_t *info) {
     sve2_mtx_init(&c->audio_fifo_mutex, mtx_plain);
 
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
-    config.playback.format = ma_format_s16;
+    if ((config.playback.format = get_ma_sample_format(c->info.sample_fmt)) ==
+        ma_format_unknown) {
+      log_error("AVSampleFormat %s is not supported as output audio format",
+                av_get_sample_fmt_name(c->info.sample_fmt));
+      panic();
+    }
     config.playback.channels = c->info.ch_layout->nb_channels;
     config.sampleRate = c->info.sample_rate;
     config.dataCallback = ma_data_callback;
