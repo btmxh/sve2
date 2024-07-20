@@ -12,6 +12,7 @@ typedef struct {
   demuxer_stream_t stream;
   decoder_t decoder;
   AVFrame *hw_frame, *transfer_frame, *out_frame;
+  bool eof;
   // audio
   SwrContext *audio_resampler;
   // video

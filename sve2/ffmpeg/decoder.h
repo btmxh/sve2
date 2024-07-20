@@ -12,7 +12,6 @@
 typedef struct {
   demuxer_stream_t *stream;
   AVCodecContext *cc;
-  bool eof;
 } decoder_t;
 
 typedef enum {

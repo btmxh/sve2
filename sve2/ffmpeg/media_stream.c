@@ -18,6 +18,7 @@ bool media_stream_open(media_stream_t *media, context_t *context,
   media->stream.index = index;
   media->next_video_pts = -1;
   media->audio_resampler = NULL;
+  media->eof = false;
 
   if (!demuxer_init(&media->demuxer, &(demuxer_init_t){
                                          .path = path,
@@ -58,9 +59,7 @@ void media_stream_close(media_stream_t *media) {
   demuxer_free(&media->demuxer);
 }
 
-bool media_stream_eof(const media_stream_t *media) {
-  return decoder_eof(&media->decoder);
-}
+bool media_stream_eof(const media_stream_t *media) { return media->eof; }
 
 const AVStream *media_get_stream(const media_stream_t *media) {
   return media->demuxer.fc->streams[media->stream.index];
@@ -72,6 +71,7 @@ void media_stream_seek(media_stream_t *media, i64 timestamp) {
                    AVSEEK_FLAG_BACKWARD);
   decoder_wait_for_seek(&media->decoder, SVE_DEADLINE_INF);
   media->next_video_pts = -1;
+  media->eof = false;
 }
 
 decode_result_t media_get_video_texture(media_stream_t *media,
@@ -84,6 +84,9 @@ decode_result_t media_get_video_texture(media_stream_t *media,
   while (media->next_video_pts < time) {
     err = decoder_decode(&media->decoder, media->hw_frame, SVE_DEADLINE_INF);
     if (err != DECODE_SUCCESS) {
+      if (err == DECODE_EOF) {
+        media->eof = true;
+      }
       return err;
     }
 
@@ -159,6 +162,9 @@ decode_result_t media_get_audio_frame(media_stream_t *media, AVFrame **frame,
 
   do {
     if ((result = get_next_audio_frame(media)) != DECODE_SUCCESS) {
+      if (result == DECODE_EOF) {
+        media->eof = true;
+      }
       return result;
     }
     frame_end_pts = media->out_frame->pts + media->out_frame->duration;
