@@ -35,6 +35,7 @@ i32 muxer_new_stream(muxer_t *m, context_t *c, const AVCodec *codec,
   stream->time_base = m->encoders[stream->id].c->time_base;
   nassert(avcodec_parameters_from_context(stream->codecpar,
                                           m->encoders[stream->id].c) >= 0);
+  stream->avg_frame_rate = m->encoders[stream->id].c->framerate;
   return stream->id;
 }
 
