@@ -125,7 +125,7 @@ enum {
 void ma_data_callback(ma_device *device, void *output, const void *input,
                       u32 nb_frames) {
   (void)input;
-  context_t *c = (context_t *)device->pUserData;
+  preview_context_t *c = &((context_t *)device->pUserData)->pctx;
   sve2_mtx_lock(&c->audio_fifo_mutex);
   i32 num_read = sve2_min_i32(nb_frames, av_audio_fifo_size(c->audio_fifo));
   nassert_ffmpeg(av_audio_fifo_read(c->audio_fifo, &output, num_read));
@@ -199,7 +199,7 @@ context_t *context_init(const context_init_t *info) {
     muxer_init(&c->rctx.muxer, c->info.output_path);
 
     const AVCodec *video_codec, *audio_codec;
-    nassert(video_codec = avcodec_find_encoder_by_name("h264_vaapi"));
+    nassert(video_codec = avcodec_find_encoder_by_name("hevc_vaapi"));
     nassert(audio_codec = avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE));
     c->rctx.video_si =
         muxer_new_stream(&c->rctx.muxer, c, video_codec, true, NULL, NULL);
@@ -228,11 +228,14 @@ context_t *context_init(const context_init_t *info) {
                        nv12_height);
   } else {
     i32 num_samples =
-        c->info.sample_rate / c->info.fps * c->info.num_buffered_audio_frames;
-    nassert(c->audio_fifo = av_audio_fifo_alloc(c->info.sample_fmt,
-                                                c->info.ch_layout->nb_channels,
-                                                num_samples));
-    sve2_mtx_init(&c->audio_fifo_mutex, mtx_plain);
+        c->info.sample_rate * c->info.num_buffered_audio_frames / c->info.fps;
+    nassert(
+        c->pctx.audio_fifo = av_audio_fifo_alloc(
+            c->info.sample_fmt, c->info.ch_layout->nb_channels, num_samples));
+    c->pctx.audio_staging_buffer =
+        sve2_malloc(num_samples * c->info.ch_layout->nb_channels *
+                    av_get_bytes_per_sample(c->info.sample_fmt));
+    sve2_mtx_init(&c->pctx.audio_fifo_mutex, mtx_plain);
 
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
     if ((config.playback.format = get_ma_sample_format(c->info.sample_fmt)) ==
@@ -245,8 +248,9 @@ context_t *context_init(const context_init_t *info) {
     config.sampleRate = c->info.sample_rate;
     config.dataCallback = ma_data_callback;
     config.pUserData = c;
-    nassert(ma_device_init(NULL, &config, &c->audio_device) == MA_SUCCESS);
-    nassert(ma_device_start(&c->audio_device) == MA_SUCCESS);
+    config.periodSizeInFrames = c->info.sample_rate / c->info.fps;
+    nassert(ma_device_init(NULL, &config, &c->pctx.audio_device) == MA_SUCCESS);
+    nassert(ma_device_start(&c->pctx.audio_device) == MA_SUCCESS);
   }
 
   return c;
@@ -262,11 +266,10 @@ void context_free(context_t *c) {
     glDeleteTextures(1, &c->rctx.fbo_color_attachment);
     glDeleteFramebuffers(1, &c->rctx.fbo);
   } else {
-    context_submit_audio_eof(c);
-    ma_device_uninit(&c->audio_device);
-
-    mtx_destroy(&c->audio_fifo_mutex);
-    av_audio_fifo_free(c->audio_fifo);
+    ma_device_uninit(&c->pctx.audio_device);
+    mtx_destroy(&c->pctx.audio_fifo_mutex);
+    av_audio_fifo_free(c->pctx.audio_fifo);
+    sve2_freep(&c->pctx.audio_staging_buffer);
   }
 
   shader_manager_free(&c->sman);
@@ -311,7 +314,7 @@ void context_begin_frame(context_t *c) {
 
   if (c->info.mode == CONTEXT_MODE_RENDER) {
     glBindFramebuffer(GL_FRAMEBUFFER, c->rctx.fbo);
-    c->num_samples = 0;
+    c->num_frame_samples = 0;
   }
 
   i32 width, height;
@@ -356,56 +359,71 @@ GLuint context_default_framebuffer(context_t *c) {
 }
 
 void context_set_audio_timer(context_t *c, i64 time) {
-  sve2_mtx_lock(&c->audio_fifo_mutex);
-  c->num_samples = 0;
+  c->num_samples_from_last_seek = 0;
   c->audio_timer_offset = time;
-  sve2_mtx_unlock(&c->audio_fifo_mutex);
 }
 
 i64 context_get_audio_timer(context_t *c) {
-  sve2_mtx_lock(&c->audio_fifo_mutex);
-  i32 num_buffered_samples = av_audio_fifo_size(c->audio_fifo);
-  i32 time = c->num_samples - num_buffered_samples;
-  sve2_mtx_unlock(&c->audio_fifo_mutex);
-  return c->audio_timer_offset +
-         (i64)time * SVE2_NS_PER_SEC / c->info.sample_rate;
-}
-
-bool context_audio_full(context_t *c) {
-  if (c->info.mode == CONTEXT_MODE_RENDER) {
-    return c->num_samples >= c->info.sample_rate / c->info.fps;
-  } else {
-    sve2_mtx_lock(&c->audio_fifo_mutex);
-    i32 nb_samples =
-        c->info.sample_rate / c->info.fps * c->info.num_buffered_audio_frames;
-    bool full = av_audio_fifo_size(c->audio_fifo) >= nb_samples;
-    sve2_mtx_unlock(&c->audio_fifo_mutex);
-    return full;
-  }
-}
-
-void context_submit_audio(context_t *c, AVFrame *audio_frame) {
-  if (c->info.mode == CONTEXT_MODE_RENDER) {
-    audio_frame->pts = c->num_samples;
-    muxer_submit_frame(&c->rctx.muxer, audio_frame, c->rctx.audio_si);
-  } else {
-    sve2_mtx_lock(&c->audio_fifo_mutex);
-    av_audio_fifo_write(c->audio_fifo, (void *const *)audio_frame->data,
-                        audio_frame->nb_samples);
-    sve2_mtx_unlock(&c->audio_fifo_mutex);
-  }
-
-  c->num_samples += audio_frame->nb_samples;
-  av_frame_unref(audio_frame);
-}
-
-void context_submit_audio_eof(context_t *c) {
+  i32 audio_fifo_size = 0;
   if (c->info.mode == CONTEXT_MODE_PREVIEW) {
-    sve2_mtx_lock(&c->audio_fifo_mutex);
-    c->audio_eof = true;
-    sve2_mtx_unlock(&c->audio_fifo_mutex);
+    sve2_mtx_lock(&c->pctx.audio_fifo_mutex);
+    audio_fifo_size = av_audio_fifo_size(c->pctx.audio_fifo);
+    sve2_mtx_unlock(&c->pctx.audio_fifo_mutex);
   }
+  i32 time = c->num_samples_from_last_seek - audio_fifo_size;
+  return c->audio_timer_offset + time * SVE2_NS_PER_SEC / c->info.sample_rate;
 }
+
+bool context_map_audio(context_t *c, void *staging_buffer[static 1],
+                       i32 nb_samples[static 1]) {
+  switch (c->info.mode) {
+  case CONTEXT_MODE_PREVIEW:
+    sve2_mtx_lock(&c->pctx.audio_fifo_mutex);
+    *nb_samples = av_audio_fifo_space(c->pctx.audio_fifo);
+    *staging_buffer = c->pctx.audio_staging_buffer;
+    sve2_mtx_unlock(&c->pctx.audio_fifo_mutex);
+    break;
+  case CONTEXT_MODE_RENDER:
+    AVFrame *frame = c->rctx.transfer_frame;
+    av_frame_unref(frame);
+    av_channel_layout_copy(&frame->ch_layout, c->info.ch_layout);
+    frame->sample_rate = c->info.sample_rate;
+    frame->nb_samples = frame->sample_rate / c->info.fps - c->num_frame_samples;
+    frame->format = c->info.sample_fmt;
+    if (frame->nb_samples <= 0) {
+      return false;
+    }
+    nassert_ffmpeg(av_frame_get_buffer(frame, 0));
+    *nb_samples = frame->nb_samples;
+    *staging_buffer = frame->data[0];
+    break;
+  }
+
+  return *nb_samples > 0;
+}
+
+void context_unmap_audio(context_t *c, i32 nb_samples) {
+  switch (c->info.mode) {
+  case CONTEXT_MODE_PREVIEW:
+    sve2_mtx_lock(&c->pctx.audio_fifo_mutex);
+    av_audio_fifo_write(c->pctx.audio_fifo,
+                        (void *[]){c->pctx.audio_staging_buffer}, nb_samples);
+    sve2_mtx_unlock(&c->pctx.audio_fifo_mutex);
+    break;
+  case CONTEXT_MODE_RENDER:
+    AVFrame *frame = c->rctx.transfer_frame;
+    frame->nb_samples = nb_samples;
+    frame->pts = c->num_total_samples;
+    muxer_submit_frame(&c->rctx.muxer, frame, c->rctx.audio_si);
+    av_frame_unref(frame);
+    break;
+  }
+
+  c->num_total_samples += nb_samples;
+  c->num_frame_samples += nb_samples;
+  c->num_samples_from_last_seek += nb_samples;
+}
+
 void context_set_user_pointer(context_t *c, void *u) { c->user_ptr = u; }
 
 void *context_get_user_pointer(GLFWwindow *window) {

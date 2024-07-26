@@ -29,6 +29,13 @@ typedef struct {
 } context_init_t;
 
 typedef struct {
+  ma_device audio_device;
+  mtx_t audio_fifo_mutex;
+  AVAudioFifo *audio_fifo;
+  void *audio_staging_buffer;
+} preview_context_t;
+
+typedef struct {
   muxer_t muxer;
   AVFrame *hw_frame;
   AVFrame *transfer_frame;
@@ -42,19 +49,18 @@ typedef struct context_t {
   context_init_t info;
   GLFWwindow *window;
   shader_manager_t sman;
+  // video timing
   i32 frame_num;
-  // num_samples is the total number of samples:
-  // preview mode: total samples played since last seek
-  // render mode: total samples played since last frame
-  i32 num_samples;
+  // audio timing
+  i64 audio_timer_offset;
+  i32 num_samples_from_last_seek;
+  i32 num_total_samples;
+  i32 num_frame_samples;
   f32 xscale, yscale;
   void *user_ptr;
+
   render_context_t rctx;
-  ma_device audio_device;
-  mtx_t audio_fifo_mutex;
-  bool audio_eof;
-  AVAudioFifo *audio_fifo;
-  i64 audio_timer_offset;
+  preview_context_t pctx;
 } context_t;
 
 context_t *context_init(const context_init_t *info);
@@ -72,9 +78,10 @@ GLuint context_default_framebuffer(context_t *c);
 
 void context_set_audio_timer(context_t *c, i64 time);
 i64 context_get_audio_timer(context_t *c);
-bool context_audio_full(context_t *c);
-void context_submit_audio(context_t *c, AVFrame *audio_frame);
-void context_submit_audio_eof(context_t *c);
+
+bool context_map_audio(context_t *c, void *staging_buffer[static 1],
+                       i32 nb_samples[static 1]);
+void context_unmap_audio(context_t *c, i32 nb_samples);
 
 void context_set_user_pointer(context_t *c, void *u);
 void *context_get_user_pointer(GLFWwindow *window);

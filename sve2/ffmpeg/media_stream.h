@@ -11,13 +11,22 @@ typedef struct {
   demuxer_t demuxer;
   demuxer_stream_t stream;
   decoder_t decoder;
-  AVFrame *hw_frame, *transfer_frame, *out_frame;
+  // decoding pipeline:
+  // decoder_t (wraps AVCodecContext)
+  //               v
+  // decoded_frame (same format as input stream)
+  //          _____|_____
+  // (audio) |          | (video + hwaccel)
+  //         v          v 
+  // audio_resampler   transfer_frame (DRM prime)
+  //       v                     v
+  // raw PCM data        texture (GL texture)
+  AVFrame *decoded_frame, *transfer_frame;
   bool eof;
   // audio
   SwrContext *audio_resampler;
   // video
   hw_texture_t texture;
-  i64 next_video_pts;
 } media_stream_t;
 
 bool media_stream_open(media_stream_t *media, context_t *context,
@@ -29,5 +38,5 @@ void media_stream_seek(media_stream_t *media, i64 timestamp);
 decode_result_t media_get_video_texture(media_stream_t *media,
                                         hw_texture_t *texture, i64 time);
 
-decode_result_t media_get_audio_frame(media_stream_t *media, AVFrame **frame,
-                                      i64 time);
+decode_result_t media_get_audio_frame(media_stream_t *media, void *samples,
+                                      i32 nb_samples[static 1]);
