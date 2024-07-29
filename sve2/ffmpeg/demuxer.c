@@ -46,13 +46,18 @@ typedef enum {
 i32 bitfield_index(stream_index_bit_t type, i16 index) {
   assert(index >= 0);
   u32 bitfield_index = type | (u32)index;
-  return -(i32)(bitfield_index + 1);
+  return -(i32)(bitfield_index);
 }
 
+// internal representation of stream indices:
+// regular/absolute -> the same value (therefore non-negative)
+// relative: value = -((VIDEO or AUDIO or SUBS) | index)
+i32 stream_index_regular(i16 index) { return index; }
 i32 stream_index_video(i16 index) { return bitfield_index(VIDEO, index); }
 i32 stream_index_audio(i16 index) { return bitfield_index(AUDIO, index); }
 i32 stream_index_subs(i16 index) { return bitfield_index(SUBS, index); }
 
+// do the reverse conversion as above
 static bool decompose_stream_index(i32 index, enum AVMediaType *type,
                                    i16 *relative_index) {
   type = type ? type : &(enum AVMediaType){AVMEDIA_TYPE_UNKNOWN};
@@ -64,7 +69,7 @@ static bool decompose_stream_index(i32 index, enum AVMediaType *type,
     return index <= (i32)INT16_MAX;
   }
 
-  u32 bitfield_index = (u32) - (index + 1);
+  u32 bitfield_index = (u32)-index;
   if (bitfield_index & VIDEO) {
     *type = AVMEDIA_TYPE_VIDEO;
   } else if (bitfield_index & AUDIO) {
@@ -83,6 +88,7 @@ static bool decompose_stream_index(i32 index, enum AVMediaType *type,
 
 char *stream_index_to_string(i32 index, char *str, i32 bufsize) {
   if (index >= 0) {
+    // absolute index -> :%index%
     nassert(snprintf(str, bufsize, ":%" PRIi32, index));
     return str;
   }
@@ -90,16 +96,19 @@ char *stream_index_to_string(i32 index, char *str, i32 bufsize) {
   enum AVMediaType type;
   i16 rel_index;
   if (!decompose_stream_index(index, &type, &rel_index)) {
+    // invalid stream index -> :?
     strncpy(str, ":?", bufsize - 1);
     return str;
   }
 
   nassert(type != AVMEDIA_TYPE_UNKNOWN);
+  // relative index -> a/v/s:%index%
   nassert(snprintf(str, bufsize, "%c:%" PRIi32,
                    av_get_media_type_string(type)[0], rel_index));
   return str;
 }
 
+// command struct for the command MPMC queue
 typedef struct {
   // seek args
   i64 seek_offset;
@@ -134,9 +143,11 @@ bool demuxer_handle_cmd(demuxer_t *d, bool *late_packet, bool *error,
         return true;
       }
 
+      // free current holding packet, since we "sought" (seeked)
       av_packet_free(packet);
       *packet_stream_index = -1;
 
+      // send seek messages
       for (i32 i = 0; i < d->init.num_streams; ++i) {
         if (d->init.streams[i].index < 0) {
           continue;
@@ -153,6 +164,7 @@ bool demuxer_handle_cmd(demuxer_t *d, bool *late_packet, bool *error,
   return false;
 }
 
+// whether demuxer thread should send a new packet:
 bool demuxer_should_send(demuxer_t *d) {
   for (i32 i = 0; i < d->init.num_streams; ++i) {
     if (d->init.streams[i].index < 0) {
@@ -187,11 +199,13 @@ int demuxer_thread(void *u) {
                              &packet_stream_index)) {
     if (packet_stream_index >= 0) {
       if (!late_packet && !demuxer_should_send(d)) {
+        // keep the packet and send it later
         timeout = 10 * SVE2_NS_PER_SEC / 1000; // 10ms
         continue;
       }
 
       late_packet = false;
+      // send the packet
       assert(packet_stream_index < d->init.num_streams);
       nassert(mpmc_send(&d->init.streams[packet_stream_index].packet_channel,
                         &(packet_msg_t){
@@ -203,11 +217,16 @@ int demuxer_thread(void *u) {
       packet_stream_index = -1;
     }
 
+    // allocate packet if needed
     if (!packet) {
       packet = av_packet_alloc();
       nassert(packet);
     }
 
+    // read packet using av_read_frame
+    // discard unnecessary packets (packet_stream_index < 0)
+    // this index != media stream index, the correlation is:
+    // d.init.streams[packet_stream_index].index == packet.stream_index
     while (packet_stream_index < 0) {
       int err = av_read_frame(d->fc, packet);
       if (err < 0) {
@@ -248,6 +267,8 @@ end:
   return 0;
 }
 
+// convert from relative/absolute index to absolute index
+// by searching for streams from the media file
 static i32 find_stream_index(AVFormatContext *fc, i32 index) {
   if (index >= 0) {
     return index < (i32)fc->nb_streams ? index : -1;

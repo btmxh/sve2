@@ -12,14 +12,19 @@
 #include "sve2/utils/runtime.h"
 #include "sve2/utils/types.h"
 
-static void drm_prime_to_gl(AVFrame *frame, hw_texture_t *texture) {
-  enum AVPixelFormat format = texture->format;
+/**
+ * @brief Map a DRM frame to OpenGL texture(s).
+ *
+ * @param frame An AVFrame with the AV_PIX_FMT_DRM_PRIME format
+ * @param texture A hw_texture_t object where the mapped textures will be stored
+ */
+static void drm_prime_to_gl(AVFrame *frame, hw_texture_t *texture,
+                            enum AVPixelFormat format) {
   const AVPixFmtDescriptor *pix_fmt = av_pix_fmt_desc_get(format);
   log_trace("mapping texture with pixel format %s (aka %s)",
-            av_get_pix_fmt_name(format), pix_fmt->alias);
+            av_get_pix_fmt_name(format),
+            pix_fmt->alias ? pix_fmt->alias : "none");
   texture->format = format;
-
-  bool rgb = pix_fmt->flags & AV_PIX_FMT_FLAG_RGB;
 
   // endianness mismatch check
 #ifdef __STDC_ENDIAN_LITTLE__
@@ -30,6 +35,8 @@ static void drm_prime_to_gl(AVFrame *frame, hw_texture_t *texture) {
 
   const AVDRMFrameDescriptor *desc =
       (const AVDRMFrameDescriptor *)frame->data[0];
+
+  // copy file descriptors to hw_texture_t
   for (i32 i = 0; i < desc->nb_objects; ++i) {
     texture->vaapi_fds[i] = desc->objects[i].fd;
   }
@@ -40,13 +47,13 @@ static void drm_prime_to_gl(AVFrame *frame, hw_texture_t *texture) {
 
     u32 w_shift = 0, h_shift = 0;
     // we only shift the dimensions if
-    // - not RGB format
+    // - not RGB format (so there are chroma planes)
     // - this plane contains either U or V (chroma) data (or both)
     // - this plane does not contain Y (luma) data
     // the last condition is crucial: there exists formats such as YUYV422 which
     // interleaves everything into a plane. the width and height of such plane
     // should be the same as the original frame
-    if (!rgb &&
+    if (!(pix_fmt->flags & AV_PIX_FMT_FLAG_RGB) &&
         (i == pix_fmt->comp[1 /*U*/].plane ||
          i == pix_fmt->comp[2 /*V*/].plane) &&
         i != pix_fmt->comp[0 /*Y*/].plane) {
@@ -165,33 +172,31 @@ static void gl_to_drm_prime(hw_texture_t *texture, AVFrame *prime) {
   prime->data[0] = (u8 *)frame;
 }
 
-hw_texture_t hw_texture_blank(enum AVPixelFormat format) {
-  return hw_texture_from_gl(format, 0, NULL);
+hw_texture_t hw_texture_from_gl(enum AVPixelFormat format, i32 num_planes,
+                                GLuint textures[num_planes]) {
+  hw_texture_t tex;
+  tex.format = format;
+
+  for (i32 i = 0; i < sve2_arrlen(tex.textures); ++i) {
+    tex.textures[i] = 0;
+  }
+  memcpy(tex.textures, textures, num_planes * sizeof(GLuint));
+
+  for (i32 i = 0; i < sve2_arrlen(tex.images); ++i) {
+    tex.images[i] = EGL_NO_IMAGE;
+  }
+  for (i32 i = 0; i < sve2_arrlen(tex.vaapi_fds); ++i) {
+    tex.vaapi_fds[i] = -1;
+  }
+  return tex;
 }
 
-hw_texture_t hw_texture_from_gl(enum AVPixelFormat format, i32 num_textures,
-                                GLuint textures[]) {
-  hw_texture_t t;
-  memset(&t, 0, sizeof t);
-  t.format = format;
-
-  for (i32 i = 0; i < sve2_arrlen(t.vaapi_fds); ++i) {
-    t.vaapi_fds[i] = -1;
-  }
-
-  for (i32 i = 0; i < num_textures; ++i) {
-    t.textures[i] = textures[i];
-  }
-
-  return t;
-}
-
-void hw_texmap_to_gl(const AVFrame *src, AVFrame *prime,
-                     hw_texture_t *texture) {
+void hw_texmap_to_gl(const AVFrame *src, AVFrame *prime, hw_texture_t *texture,
+                     enum AVPixelFormat sw_format) {
   prime->format = AV_PIX_FMT_DRM_PRIME;
   nassert_ffmpeg(
       av_hwframe_map(prime, src, AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT));
-  drm_prime_to_gl(prime, texture);
+  drm_prime_to_gl(prime, texture, sw_format);
   av_frame_unref(prime);
 }
 

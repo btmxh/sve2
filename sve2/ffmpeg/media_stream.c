@@ -114,8 +114,8 @@ static void map_hw_frame(media_stream_t *media) {
   assert(media->decoder.cc->hw_device_ctx);
   assert(media_type(media) == AVMEDIA_TYPE_VIDEO);
   hw_texmap_unmap(&media->texture, true);
-  media->texture = hw_texture_blank(decoder_get_sw_format(&media->decoder));
-  hw_texmap_to_gl(media->decoded_frame, media->transfer_frame, &media->texture);
+  hw_texmap_to_gl(media->decoded_frame, media->transfer_frame, &media->texture,
+                  decoder_get_sw_format(&media->decoder));
 }
 
 void media_stream_seek(media_stream_t *media, i64 timestamp) {
