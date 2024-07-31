@@ -6,15 +6,20 @@
 #include <GLFW/glfw3.h>
 #include <glad/egl.h>
 #include <libavcodec/codec.h>
+#include <libavcodec/packet.h>
 #include <libavutil/audio_fifo.h>
+#include <libavutil/buffer.h>
 #include <libavutil/frame.h>
+#include <libavutil/hwcontext_drm.h>
 #include <libavutil/samplefmt.h>
+#include <libdrm/drm.h>
+#include <libdrm/drm_fourcc.h>
 #include <log.h>
+#include <time.h>
 
-#include "sve2/ffmpeg/hw_texmap.h"
-#include "sve2/ffmpeg/muxer.h"
 #include "sve2/gl/shader.h"
 #include "sve2/log/logging.h"
+#include "sve2/media/output_ctx.h"
 #include "sve2/utils/minmax.h"
 #include "sve2/utils/runtime.h"
 #include "sve2/utils/threads.h"
@@ -147,6 +152,112 @@ static ma_format get_ma_sample_format(enum AVSampleFormat format) {
   }
 }
 
+typedef struct {
+  struct {
+    i32 x, y;
+  } offset_y, offset_uv;
+  i32 tex_width, tex_height;
+} nv12_output_frame_offsets_t;
+
+static i32 round_up_to_multiple_of(i32 x, i32 po2) {
+  return (i32)((u32)(x + po2 - 1) & ~(u32)(po2 - 1));
+}
+
+// this is how stuff is aligned on intel GPUs
+// https://github.com/intel/hwc/blob/master/lib/ufo/graphics.h
+void hw_align_size(i32 *width, i32 *height) {
+  if (width) {
+    *width = round_up_to_multiple_of(*width, 128);
+  }
+  if (height) {
+    *height = round_up_to_multiple_of(*height, 64);
+  }
+}
+
+static nv12_output_frame_offsets_t calc_out_frame_offsets(i32 width,
+                                                          i32 height) {
+  // NV12 is structured (vertically, horizontal layout is straightforward)
+  // similar to a C struct like so: struct NV12 {
+  //   Region y_plane;
+  //   Region uv_plane; // interleaved
+  // }
+  // Here, offsetof(y_plane) = 0
+  // Here, alignof(Region) can be retrieved by hw_align_size, we are only
+  // intere
+  // TODO: NV12-specific hack
+  // trivial offsets
+  nv12_output_frame_offsets_t offsets = {
+      .offset_y = {0, 0},
+      .offset_uv = {0, height},
+      .tex_width = width,
+      .tex_height = height,
+  };
+
+  // we ignores the zero offsets
+  hw_align_size(NULL, &offsets.offset_uv.y);
+  offsets.tex_height = offsets.offset_uv.y + height / 2;
+  hw_align_size(&offsets.tex_width, &offsets.tex_height);
+  return offsets;
+}
+
+static void remap_drm_prime(render_context_t *r, EGLImage *image, i32 width,
+                            i32 height) {
+  nv12_output_frame_offsets_t offsets = calc_out_frame_offsets(width, height);
+  nassert((*image = eglCreateImage(eglGetCurrentDisplay(),
+                                   eglGetCurrentContext(), EGL_GL_TEXTURE_2D,
+                                   (EGLClientBuffer)(size_t)r->output_texture,
+                                   NULL)));
+
+  EGLint num_planes;
+  EGLuint64KHR mods;
+  eglExportDMABUFImageQueryMESA(eglGetCurrentDisplay(), *image, NULL,
+                                &num_planes, &mods);
+  assert(num_planes == 1);
+
+  EGLint fd, stride, offset;
+  eglExportDMABUFImageMESA(eglGetCurrentDisplay(), *image, &fd, &stride,
+                           &offset);
+
+  AVFrame *prime_frame = r->output_video_texture_prime;
+  AVDRMFrameDescriptor *prime =
+      (AVDRMFrameDescriptor *)prime_frame->buf[0]->data;
+  // DRM PRIME with one object:
+  prime->nb_objects = 1;
+  prime->objects[0] = (AVDRMObjectDescriptor){
+      .fd = fd,
+      .size = offsets.tex_width * offsets.tex_height,
+      .format_modifier = mods,
+  };
+  // Two layers, each with one plane:
+  prime->nb_layers = 2;
+  prime->layers[0] = (AVDRMLayerDescriptor){
+      .nb_planes = 1,
+      .planes =
+          {
+              {
+                  .pitch = stride,
+                  .offset =
+                      offset + offsets.offset_y.y * stride + offsets.offset_y.x,
+                  .object_index = 0,
+              },
+          },
+      .format = DRM_FORMAT_R8,
+  };
+  prime->layers[1] = (AVDRMLayerDescriptor){
+      .nb_planes = 1,
+      .planes =
+          {
+              {
+                  .pitch = stride,
+                  .offset = offset + offsets.offset_uv.y * stride +
+                            offsets.offset_uv.x,
+                  .object_index = 0,
+              },
+          },
+      .format = DRM_FORMAT_RG88,
+  };
+}
+
 context_t *context_init(const context_init_t *info) {
   // initialize core libraries
   init_logging();
@@ -200,24 +311,31 @@ context_t *context_init(const context_init_t *info) {
 
   shader_manager_init(&c->sman, "shaders/out");
 
+  for (i32 i = 0; i < sve2_arrlen(c->temp_frames); ++i) {
+    nassert(c->temp_frames[i] = av_frame_alloc());
+  }
+  nassert(c->temp_packet = av_packet_alloc());
+
   // mode-specific initialization
   if (c->info.mode == CONTEXT_MODE_RENDER) {
-    nassert(c->rctx.hw_frame = av_frame_alloc());
-    nassert(c->rctx.transfer_frame = av_frame_alloc());
-    // TODO: this only supports RGB -> NV12 conversion
-    nassert(c->rctx.color_convert_shader =
-                shader_new_c(c, "encode_nv12.comp.glsl"));
-    muxer_init(&c->rctx.muxer, c->info.output_path);
+    nassert(c->rctx.audio_mapping_frame = av_frame_alloc());
 
     const AVCodec *video_codec, *audio_codec;
     nassert(video_codec = avcodec_find_encoder_by_name("hevc_vaapi"));
     nassert(audio_codec = avcodec_find_encoder(AV_CODEC_ID_PCM_S16LE));
-    // create streams for output file
-    c->rctx.video_si =
-        muxer_new_stream(&c->rctx.muxer, c, video_codec, true, NULL, NULL);
-    c->rctx.audio_si =
-        muxer_new_stream(&c->rctx.muxer, c, audio_codec, false, NULL, NULL);
-    muxer_begin(&c->rctx.muxer);
+    output_ctx_open(c, &c->rctx.output_ctx, c->info.output_path, 2,
+                    (const AVCodec *[]){video_codec, audio_codec});
+
+    nassert(c->rctx.output_video_texture_prime = av_frame_alloc());
+    AVFrame *prime_frame = c->rctx.output_video_texture_prime;
+    prime_frame->width = width;
+    prime_frame->height = height;
+    prime_frame->format = AV_PIX_FMT_DRM_PRIME;
+    prime_frame->buf[0] = av_buffer_alloc(sizeof(AVDRMFrameDescriptor));
+    prime_frame->data[0] = prime_frame->buf[0]->data;
+    // TODO: this only supports RGB -> NV12 conversion
+    nassert(c->rctx.color_convert_shader =
+                shader_new_c(c, "encode_nv12.comp.glsl"));
 
     // create OpenGL capturing objects
     i32 width = c->info.width, height = c->info.height;
@@ -233,13 +351,11 @@ context_t *context_init(const context_init_t *info) {
                               c->rctx.fbo_color_attachment, 0);
     nassert(glCheckNamedFramebufferStatus(c->rctx.fbo, GL_FRAMEBUFFER) ==
             GL_FRAMEBUFFER_COMPLETE);
-    c->rctx.uv_offset_y = height;
-    hw_align_size(NULL, &c->rctx.uv_offset_y);
-    // TODO: NV12-specific hack
-    i32 nv12_width = width, nv12_height = c->rctx.uv_offset_y + height / 2;
     glCreateTextures(GL_TEXTURE_2D, 1, &c->rctx.output_texture);
-    glTextureStorage2D(c->rctx.output_texture, 1, GL_R8, nv12_width,
-                       nv12_height);
+    nv12_output_frame_offsets_t offsets = calc_out_frame_offsets(width, height);
+    glTextureStorage2D(c->rctx.output_texture, 1, GL_R8, offsets.tex_width,
+                       offsets.tex_height);
+    c->rctx.offset_uv_y = offsets.offset_uv.y;
   } else {
     // allocate audio playback buffer and other things
     i32 num_samples =
@@ -277,18 +393,23 @@ context_t *context_init(const context_init_t *info) {
 
 void context_free(context_t *c) {
   if (c->info.mode == CONTEXT_MODE_RENDER) {
-    muxer_end(&c->rctx.muxer);
-    muxer_free(&c->rctx.muxer);
-    av_frame_free(&c->rctx.hw_frame);
-    av_frame_free(&c->rctx.transfer_frame);
+    output_ctx_close(&c->rctx.output_ctx);
+    eglDestroyImage(eglGetCurrentDisplay(), c->rctx.output_texture_image);
+    av_frame_free(&c->rctx.output_video_texture_prime);
     glDeleteTextures(1, &c->rctx.output_texture);
     glDeleteTextures(1, &c->rctx.fbo_color_attachment);
     glDeleteFramebuffers(1, &c->rctx.fbo);
+    av_frame_free(&c->rctx.audio_mapping_frame);
   } else {
     ma_device_uninit(&c->pctx.audio_device);
     mtx_destroy(&c->pctx.audio_fifo_mutex);
     av_audio_fifo_free(c->pctx.audio_fifo);
     sve2_freep(&c->pctx.audio_staging_buffer);
+  }
+
+  av_packet_free(&c->temp_packet);
+  for (i32 i = 0; i < sve2_arrlen(c->temp_frames); ++i) {
+    av_frame_free(&c->temp_frames[i]);
   }
 
   shader_manager_free(&c->sman);
@@ -339,7 +460,7 @@ void context_end_frame(context_t *c) {
     // do color-conversion via compute shader
     i32 width = c->info.width, height = c->info.height;
     nassert(shader_use(c->rctx.color_convert_shader) >= 0);
-    glUniform1i(0, c->rctx.uv_offset_y);
+    glUniform1i(0, c->rctx.offset_uv_y);
     glUniform1i(1, true);
     glBindImageTexture(0, c->rctx.fbo_color_attachment, 0, GL_FALSE, 0,
                        GL_READ_ONLY, GL_RGBA32F);
@@ -349,19 +470,17 @@ void context_end_frame(context_t *c) {
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
     // submit frame to hardware-accelerated video encoder
-    c->rctx.hw_frame->hw_frames_ctx = av_buffer_ref(
-        c->rctx.muxer.encoders[c->rctx.video_si].c->hw_frames_ctx);
-    c->rctx.hw_frame->width = width;
-    c->rctx.hw_frame->height = height;
-    c->rctx.hw_frame->pts = c->frame_num;
-    hw_texture_t texture = hw_texture_from_gl(
-        AV_PIX_FMT_NV12, 1, (GLuint[]){c->rctx.output_texture});
-    hw_texmap_from_gl(&texture, c->rctx.transfer_frame, c->rctx.hw_frame);
-    muxer_submit_frame(&c->rctx.muxer, c->rctx.hw_frame, c->rctx.video_si);
-    hw_texmap_unmap(&texture, false);
+    AVFrame *hw_frame = c->temp_frames[0];
+    output_ctx_init_hwframe(&c->rctx.output_ctx, hw_frame, OUT_VIDEO_SI);
+    hw_frame->pts = c->frame_num;
+    EGLImage image;
+    remap_drm_prime(&c->rctx, &image, width, height);
+    nassert_ffmpeg(av_hwframe_map(hw_frame, c->rctx.output_video_texture_prime,
+                                  AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT));
+    output_ctx_submit_frame(&c->rctx.output_ctx, hw_frame, OUT_VIDEO_SI);
+    eglDestroyImage(eglGetCurrentDisplay(), image);
 
-    av_frame_unref(c->rctx.hw_frame);
-    av_frame_unref(c->rctx.transfer_frame);
+    av_frame_unref(hw_frame);
   } else {
     glfwSwapBuffers(c->window);
   }
@@ -403,7 +522,7 @@ i64 context_get_audio_timer(context_t *c) {
   return c->audio_timer_offset + time * SVE2_NS_PER_SEC / c->info.sample_rate;
 }
 
-bool context_map_audio(context_t *c, void *staging_buffer[static 1],
+bool context_map_audio(context_t *c, u8 *staging_buffer[static 1],
                        i32 nb_samples[static 1]) {
   switch (c->info.mode) {
   case CONTEXT_MODE_PREVIEW:
@@ -416,10 +535,8 @@ bool context_map_audio(context_t *c, void *staging_buffer[static 1],
     sve2_mtx_unlock(&c->pctx.audio_fifo_mutex);
     break;
   case CONTEXT_MODE_RENDER:
-    // in render mode, we use the buffer from transfer_frame
-    AVFrame *frame = c->rctx.transfer_frame;
-    av_frame_unref(frame);
-    // prepare frame params for allocation
+    AVFrame *frame = c->rctx.audio_mapping_frame;
+    // allocate memory for samples
     av_channel_layout_copy(&frame->ch_layout, c->info.ch_layout);
     frame->sample_rate = c->info.sample_rate;
     frame->nb_samples = frame->sample_rate / c->info.fps - c->num_frame_samples;
@@ -427,10 +544,8 @@ bool context_map_audio(context_t *c, void *staging_buffer[static 1],
     if (frame->nb_samples <= 0) {
       return false;
     }
-    // sample allocation for the frame
-    // we must allocate every frame because the muxer would take control of this
-    // memory, so we can't allocate once like in preview mode
     nassert_ffmpeg(av_frame_get_buffer(frame, 0));
+
     *nb_samples = frame->nb_samples;
     *staging_buffer = frame->data[0];
     break;
@@ -450,11 +565,11 @@ void context_unmap_audio(context_t *c, i32 nb_samples) {
     sve2_mtx_unlock(&c->pctx.audio_fifo_mutex);
     break;
   case CONTEXT_MODE_RENDER:
-    AVFrame *frame = c->rctx.transfer_frame;
+    AVFrame *frame = c->rctx.audio_mapping_frame;
     frame->nb_samples = nb_samples;
     frame->pts = c->num_total_samples;
-    // submit allocated frame to muxer directly
-    muxer_submit_frame(&c->rctx.muxer, frame, c->rctx.audio_si);
+    // submit allocated frame to output context directly
+    output_ctx_submit_frame(&c->rctx.output_ctx, frame, OUT_AUDIO_SI);
     av_frame_unref(frame);
     break;
   }
