@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdnoreturn.h>
+#include <log.h>
 
 #include "sve2/utils/types.h"
 

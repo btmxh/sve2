@@ -1,14 +1,12 @@
 #include "common.glsl"
 #include "yuv.glsl"
-
-in vec2 tc;
-out vec4 color;
+#include "quad.frag.glsl"
 
 layout(binding = 0) uniform sampler2D y_plane;
 layout(binding = 1) uniform sampler2D uv_plane;
 
-void main() {
-  vec4 yuva = vec4(texture(y_plane, tc).r, texture(uv_plane, tc).rg, 1.0);
-  color = yuv2rgb(yuva);
+vec4 sample_texture(vec2 tex_coords) {
+    return yuv2rgb(vec4(texture(y_plane, tex_coords).r,
+                        texture(uv_plane, tex_coords).rg, 1.0));
 }
 

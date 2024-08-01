@@ -3,11 +3,12 @@
 #include <threads.h>
 
 #include <glad/gl.h>
+#include <glad/egl.h>
 #include <libavutil/audio_fifo.h>
 #include <miniaudio/miniaudio.h>
 
-#include "sve2/ffmpeg/muxer.h"
 #include "sve2/gl/shader.h"
+#include "sve2/media/output_ctx.h"
 #include "sve2/utils/types.h"
 
 #define GLFW_INCLUDE_NONE
@@ -77,36 +78,22 @@ typedef struct {
  * @brief Render context, only defined in render mode
  */
 typedef struct {
-  /**
-   * @brief Muxer for output file
-   */
-  muxer_t muxer;
-  /**
-   * @brief GPU-owned video frame submitted to hardware-accelerated video
-   * encoder for video rendering
-   */
-  AVFrame *hw_frame;
-  /**
-   * @brief Temporary frame for transferring data to hw_frame (video)/muxer
-   * (audio).
-   */
-  AVFrame *transfer_frame;
+  output_ctx_t output_ctx;
   /**
    * @brief Color conversion shader (from RGB to YUV) for encoding.
    */
   shader_t *color_convert_shader;
   /**
-   * @brief Stream indices of output media file.
-   */
-  i32 video_si, audio_si;
-  /**
-   * @brief Cached return value from hw_align_size().
-   */
-  i32 uv_offset_y;
-  /**
    * @brief OpenGL objects for capturing rendering output.
    */
   GLuint fbo, fbo_color_attachment, output_texture;
+  /**
+   * @brief Audio mapping frame
+   */
+  AVFrame *audio_mapping_frame;
+  AVFrame *output_video_texture_prime;
+  EGLImage output_texture_image;
+  i32 offset_uv_y;
 } render_context_t;
 
 typedef struct context_t {
@@ -166,6 +153,16 @@ typedef struct context_t {
    * @brief Preview-mode-specific context
    */
   preview_context_t pctx;
+
+  /**
+   * @brief Temporary AVFrames
+   */
+  AVFrame *temp_frames[2];
+
+  /**
+   * @brief Temporary AVPacket
+   */
+  AVPacket *temp_packet;
 } context_t;
 
 /**
@@ -287,7 +284,7 @@ i64 context_get_audio_timer(context_t *c);
  * @return Whether the map operation succeeded. The operation fails when the
  * audio buffer is full.
  */
-bool context_map_audio(context_t *c, void *staging_buffer[static 1],
+bool context_map_audio(context_t *c, u8 *staging_buffer[static 1],
                        i32 nb_samples[static 1]);
 /**
  * @brief Submit audio samples to audio device. Samples are written to the
