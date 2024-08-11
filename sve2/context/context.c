@@ -441,7 +441,7 @@ void context_get_framebuffer_info(context_t *c, i32 *w, i32 *h, f32 *xscale,
 
 void context_begin_frame(context_t *c) {
   glfwPollEvents();
-  log_debug("frame %" PRIi32 " started", c->frame_num);
+  log_trace("frame %" PRIi32 " started", c->frame_num);
   shader_manager_update(&c->sman);
 
   if (c->info.mode == CONTEXT_MODE_RENDER) {
