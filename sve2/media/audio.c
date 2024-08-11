@@ -4,6 +4,7 @@
 
 #include "sve2/media/audio_pcm.h"
 #include "sve2/media/ffmpeg_audio_stream.h"
+#include "sve2/utils/runtime.h"
 
 bool audio_open(context_t *ctx, audio_t *a, const char *path,
                 stream_index_t index, audio_format_t format) {
@@ -39,7 +40,8 @@ void audio_seek(audio_t *a, i64 time) {
   }
 }
 
-void audio_get_samples(audio_t *a, i32 num_samples[static 1], u8 *samples) {
+void audio_get_samples(audio_t *a, i32 num_samples[static 1],
+                       u8 samples[*num_samples]) {
   switch (a->format) {
   case AUDIO_FORMAT_FFMPEG_STREAM:
     ffmpeg_audio_stream_get_samples(&a->ffmpeg, num_samples, samples);
@@ -49,3 +51,5 @@ void audio_get_samples(audio_t *a, i32 num_samples[static 1], u8 *samples) {
     break;
   }
 }
+
+audio_t *audio_alloc() { return sve2_malloc(sizeof(audio_t)); }
