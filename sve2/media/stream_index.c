@@ -13,7 +13,7 @@ char *sve2_si2str_helper(i32 bufsize, char buffer[bufsize], stream_index_t index
   return buffer;
 }
 
-bool stream_index_make_absolute(stream_index_t *index, i32 num_streams,
+bool stream_index_make_canonical(stream_index_t *index, i32 num_streams,
                                 AVStream *streams[num_streams]) {
   if (index->type == AVMEDIA_TYPE_UNKNOWN) {
     return index->offset < num_streams;
