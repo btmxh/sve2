@@ -12,6 +12,7 @@
 bool audio_pcm_open(context_t *ctx, audio_pcm_t *a, const char *path,
                     stream_index_t index) {
   a->ctx = ctx;
+  a->cur_index = 0;
 
   // we load the data using FFmpeg, and we will do the resampling manually, so
   // we use the base ffmpeg_stream_t type
@@ -20,7 +21,7 @@ bool audio_pcm_open(context_t *ctx, audio_pcm_t *a, const char *path,
     return false;
   }
 
-  struct SwrContext *resampler;
+  struct SwrContext *resampler = NULL;
   nassert_ffmpeg(swr_alloc_set_opts2(
       &resampler, ctx->info.ch_layout, ctx->info.sample_fmt,
       ctx->info.sample_rate, &stream.cdc_ctx->ch_layout,

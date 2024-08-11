@@ -12,6 +12,7 @@ bool ffmpeg_audio_stream_open(context_t *c, ffmpeg_audio_stream_t *a,
     return false;
   }
 
+  a->audio_resampler = NULL;
   nassert_ffmpeg(swr_alloc_set_opts2(
       &a->audio_resampler, c->info.ch_layout, c->info.sample_fmt,
       c->info.sample_rate, &a->base.cdc_ctx->ch_layout,

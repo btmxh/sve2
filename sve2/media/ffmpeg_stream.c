@@ -18,6 +18,7 @@ static enum AVPixelFormat get_format_vaapi(struct AVCodecContext *s,
 
 bool ffmpeg_stream_open(context_t *ctx, ffmpeg_stream_t *stream,
                         const char *path, stream_index_t index, bool hw_accel) {
+  stream->fmt_ctx = NULL;
   stream->ctx = ctx;
   stream->index = index;
 
@@ -33,7 +34,7 @@ bool ffmpeg_stream_open(context_t *ctx, ffmpeg_stream_t *stream,
   nassert_ffmpeg(avformat_find_stream_info(stream->fmt_ctx, NULL));
   av_dump_format(stream->fmt_ctx, 0, path, false);
 
-  if (!stream_index_make_absolute(&stream->index, stream->fmt_ctx->nb_streams,
+  if (!stream_index_make_canonical(&stream->index, stream->fmt_ctx->nb_streams,
                                   stream->fmt_ctx->streams)) {
     log_error("stream %s not found in media file '%s'", SVE2_SI2STR(index),
               path);
