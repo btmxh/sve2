@@ -35,7 +35,7 @@ bool ffmpeg_stream_open(context_t *ctx, ffmpeg_stream_t *stream,
   av_dump_format(stream->fmt_ctx, 0, path, false);
 
   if (!stream_index_make_canonical(&stream->index, stream->fmt_ctx->nb_streams,
-                                  stream->fmt_ctx->streams)) {
+                                   stream->fmt_ctx->streams)) {
     log_error("stream %s not found in media file '%s'", SVE2_SI2STR(index),
               path);
   }
