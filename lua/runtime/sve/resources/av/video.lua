@@ -87,7 +87,7 @@ end
 --- @field textures table<integer>
 
 --- @param time integer
---- @return VideoFrame
+--- @return VideoFrame|nil
 function Video:get_texture(time)
   local pframe = pvideo_frame_t()
   if not ffi.C.video_get_texture(self.handle, time, pframe) then
