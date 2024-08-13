@@ -1,6 +1,5 @@
 local ffi = require('ffi')
 local inspect = require('inspect').inspect
-local lfs = require('lfs')
 local path = require('pl.path')
 
 ffi.cdef [[
@@ -17,7 +16,7 @@ local function wrapper(level)
   return function(...)
     local file = debug.getinfo(2, 'S').short_src
     local line = debug.getinfo(2, 'l').currentline
-    file = path.relpath(file, lfs.currentdir())
+    file = path.relpath(file, path.currentdir())
 
     local args = table.pack(...)
     local msg = ""
