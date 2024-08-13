@@ -2,8 +2,8 @@
 
 #include <threads.h>
 
-#include <glad/gl.h>
 #include <glad/egl.h>
+#include <glad/gl.h>
 #include <libavutil/audio_fifo.h>
 #include <miniaudio/miniaudio.h>
 
@@ -271,6 +271,19 @@ void context_set_audio_timer(context_t *c, i64 time);
  * @return The value of the audio timer in nanoseconds
  */
 i64 context_get_audio_timer(context_t *c);
+/**
+ * @brief Pause audio (and the audio timer), noop in render mode.
+ *
+ * @param c The context
+ */
+void context_pause_audio(context_t *c);
+
+/**
+ * @brief Play audio (and continue the audio timer), noop in render mode.
+ *
+ * @param c The context
+ */
+void context_play_audio(context_t *c);
 
 /**
  * @brief Begin transferring audio samples to audio device. At most *nb_samples

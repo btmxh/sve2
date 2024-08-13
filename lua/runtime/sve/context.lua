@@ -13,6 +13,8 @@ void context_set_audio_timer(context_t *c, i64 time);
 i64 context_get_audio_timer(context_t *c);
 bool context_map_audio(context_t* c, u8** staging_buffer, i32* nb_samples);
 void context_unmap_audio(context_t* c, i32 nb_samples);
+void context_play_audio(context_t* c);
+void context_pause_audio(context_t* c);
 ]]
 
 local C = ffi.C
@@ -64,12 +66,12 @@ function M.default_framebuffer()
   return C.context_default_framebuffer(M.get())
 end
 
---- @param time ffi.cdata* time in ns (64-bit integer)
+--- @param time integer time in ns (64-bit integer)
 function M.set_audio_timer(time)
   return C.context_set_audio_timer(M.get(), time)
 end
 
---- @return ffi.cdata* time the current audio timer value
+--- @return integer time the current audio timer value
 function M.get_audio_timer()
   return C.context_get_audio_timer(M.get())
 end
@@ -104,6 +106,14 @@ function M.submit_audio(fn)
     return nil
   end
   M.unmap_audio(fn(ctx))
+end
+
+function M.play()
+  C.context_play_audio(M.get())
+end
+
+function M.pause()
+  C.context_pause_audio(M.get())
 end
 
 return M

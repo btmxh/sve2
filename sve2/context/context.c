@@ -455,6 +455,17 @@ void context_begin_frame(context_t *c) {
   c->num_frame_samples = 0;
 }
 
+void context_pause_audio(context_t *c) {
+  if (c->info.mode == CONTEXT_MODE_PREVIEW) {
+    ma_device_stop(&c->pctx.audio_device);
+  }
+}
+void context_play_audio(context_t *c) {
+  if (c->info.mode == CONTEXT_MODE_PREVIEW) {
+    ma_device_start(&c->pctx.audio_device);
+  }
+}
+
 void context_end_frame(context_t *c) {
   if (c->info.mode == CONTEXT_MODE_RENDER) {
     // do color-conversion via compute shader
