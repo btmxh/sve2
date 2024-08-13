@@ -19,6 +19,9 @@ void (*glad_glBindTexture)(GLenum target, GLuint texture);
 void (*glad_glCreateVertexArrays)(GLsizei n, GLuint* array);
 void (*glad_glDeleteVertexArrays)(GLsizei n, GLuint* array);
 void (*glad_glBindVertexArrays)(GLuint array);
+// program
+void (*glad_glUniform1f)(GLint location, GLfloat value);
+GLint (*glad_glGetUniformLocation)(GLuint program, const char* name);
 ]]
 
 local C = ffi.C
@@ -103,6 +106,19 @@ end
 --- @param vao ffi.cdata*
 function M.bind_vertex_array(vao)
   C.glad_glBindVertexArrays(vao)
+end
+
+--- @param location integer
+--- @param value number
+function M.uniform1f(location, value)
+  C.glad_glUniform1f(glt.GLint(location), glt.GLfloat(value))
+end
+
+--- @param program integer
+--- @param name string
+--- @return integer
+function M.get_uniform_location(program, name)
+  return C.glad_glGetUniformLocation(glt.GLuint(program), name)
 end
 
 return M

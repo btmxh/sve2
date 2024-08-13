@@ -14,6 +14,7 @@ return {
   GL_TRIANGLE_STRIP = gltypes.GLenum(0x0005),
 
   GL_TEXTURE_2D = gltypes.GLenum(0x0DE1),
+  GL_TEXTURE_2D_ARRAY = gltypes.GLenum(0x8C1A),
   GL_TEXTURE0 = gltypes.GLenum(0x84C0),
 
   GL_BLEND = gltypes.GLenum(0x0BE2),
