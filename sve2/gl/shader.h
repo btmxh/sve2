@@ -71,6 +71,8 @@ void shader_free(shader_t *s);
 // }
 i32 shader_use(shader_t *s);
 
+GLuint shader_get_program(shader_t* s);
+
 // utility function for vertex-fragment shaders
 #define shader_new_vf(c, vpath, fpath)                                         \
   shader_new(c, (GLenum[]){GL_VERTEX_SHADER, GL_FRAGMENT_SHADER},              \

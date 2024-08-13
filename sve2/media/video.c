@@ -1,5 +1,7 @@
 #include "video.h"
 
+#include "sve2/utils/runtime.h"
+
 bool video_open(context_t *ctx, video_t *v, const char *path,
                 stream_index_t index, video_format_t format) {
   switch (v->format = format) {
@@ -39,3 +41,5 @@ bool video_get_texture(video_t *v, i64 time, video_frame_t *tex) {
 
   return false;
 }
+
+video_t *video_alloc() { return sve2_malloc(sizeof(video_t)); }

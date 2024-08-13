@@ -63,3 +63,11 @@ void video_seek(video_t *v, i64 time);
  * @param tex Output texture containing the video textures
  */
 bool video_get_texture(video_t *v, i64 time, video_frame_t *tex);
+
+/**
+ * @brief heap allocate a video_t object, used in the lua API
+ *
+ * @return sve2_malloc(sizeof(video_t))
+ */
+video_t* video_alloc();
+

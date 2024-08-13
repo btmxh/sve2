@@ -1,19 +1,35 @@
-#include <libavutil/pixdesc.h>
+#include <stdlib.h>
+
+#include <dotenv.h>
+#include <luajit-2.1/lauxlib.h>
+#include <luajit-2.1/lua.h>
+#include <luajit-2.1/lualib.h>
+#include <unistd.h>
 
 #include "sve2/context/context.h"
 #include "sve2/gl/shader.h"
-#include "sve2/log/logging.h"
-#include "sve2/media/audio.h"
-#include "sve2/media/video.h"
-#include "sve2/media/video_frame.h"
+#include "sve2/utils/cmd_queue.h"
 #include "sve2/utils/runtime.h"
-#include "sve2/utils/threads.h"
+
+void add_lua_library_path(lua_State *L, const char *path) {
+  lua_getglobal(L, "package");
+  lua_getfield(L, -1, "path");
+  char *abs_path = realpath(path, NULL);
+  const char *old_path = lua_tostring(L, -1);
+  char *new_path;
+  asprintf(&new_path, "%s;%s", old_path, path);
+
+  lua_pop(L, 1);
+  lua_pushstring(L, new_path);
+  lua_setfield(L, -2, "path");
+  lua_pop(L, 1);
+
+  free(abs_path);
+  free(new_path);
+}
 
 int main(int argc, char *argv[]) {
-  if (argc != 2) {
-    raw_log_panic("usage: %s <media file>\n", argv[0]);
-  }
-
+  env_load(".env", true);
   AVChannelLayout ch_layout = AV_CHANNEL_LAYOUT_STEREO;
 
   context_t *c;
@@ -25,77 +41,67 @@ int main(int argc, char *argv[]) {
               .fps = 60,
               .output_path = output_path,
               .sample_rate = 48000,
-              .sample_fmt = AV_SAMPLE_FMT_S16,
+              .sample_fmt = AV_SAMPLE_FMT_FLT,
               .num_buffered_audio_frames = 4,
               .ch_layout = &ch_layout}));
 
-  shader_t *yuv_shader = shader_new_vf(c, "quad.vert.glsl", "y_uv.frag.glsl");
-  shader_t *rgb_shader =
-      shader_new_vf(c, "quad.vert.glsl", "rgba_array.frag.glsl");
+  lua_State *lua = lua_open();
+  luaL_openlibs(lua);
+  lua_pushlightuserdata(lua, c);
+  lua_setglobal(lua, "context");
+  add_lua_library_path(lua, "./lua/runtime/?.lua");
 
-  video_t video;
-  audio_t audio;
-  nassert(video_open(c, &video, argv[1], SVE2_SI(VIDEO, 0),
-                     VIDEO_FORMAT_FFMPEG_STREAM));
-  nassert(audio_open(c, &audio, argv[1], SVE2_SI(AUDIO, 0),
-                     AUDIO_FORMAT_FFMPEG_STREAM));
+  if (luaL_dofile(lua, "lua/runtime/_preload.lua")) {
+    log_error("unable to execute _preload.lua: %s", lua_tostring(lua, -1));
+    return 1;
+  }
 
-  i64 seek_time = 115 * SVE2_NS_PER_SEC;
-  video_seek(&video, seek_time);
-  audio_seek(&audio, seek_time);
-  context_set_audio_timer(c, seek_time);
-
-  for (i32 j = 0; !context_get_should_close(c); ++j) {
-    context_begin_frame(c);
-    glClearColor(0, 0, 0, 0);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    i64 time = context_get_audio_timer(c);
-    video_frame_t tex;
-    if (video_get_texture(&video, time, &tex)) {
-      shader_t *shader = NULL;
-      if (av_pix_fmt_desc_get(tex.sw_format)->flags & AV_PIX_FMT_FLAG_RGB) {
-        shader = rgb_shader;
-      } else if (tex.sw_format == AV_PIX_FMT_NV12 ||
-                 tex.sw_format == AV_PIX_FMT_YUV420P) {
-        shader = yuv_shader;
-      } else {
-        log_error("unsupported pixel format: %s",
-                  av_get_pix_fmt_name(tex.sw_format));
-      }
-      if (shader && shader_use(shader) >= 0) {
-        for (i32 i = 0; i < sve2_arrlen(tex.textures); ++i) {
-          if (!tex.textures[i]) {
-            continue;
-          }
-          glActiveTexture(GL_TEXTURE0 + i);
-          glBindTexture(tex.texture_array_index < 0 ? GL_TEXTURE_2D
-                                                    : GL_TEXTURE_2D_ARRAY,
-                        tex.textures[i]);
-          log_trace("binding texture %u to bind slot %" PRIi32, tex.textures[i],
-                    i);
-        }
-        glUniform1f(glGetUniformLocation(shader->program, "frame"),
-                    tex.texture_array_index);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-      }
+  for (i32 i = 1; i < argc; ++i) {
+    if (luaL_dofile(lua, argv[i])) {
+      log_error("unable to execute preload script '%s': %s", argv[i],
+                lua_tostring(lua, -1));
     }
-    u8 *samples;
-    i32 num_samples;
-    while (context_map_audio(c, &samples, &num_samples)) {
-      audio_get_samples(&audio, &num_samples, samples);
-      context_unmap_audio(c, num_samples);
+  }
 
-      if (num_samples == 0) {
-        break;
+  cmd_queue_t cmd_queue;
+  cmd_queue_init(&cmd_queue);
+
+  while (!context_get_should_close(c)) {
+    context_begin_frame(c);
+
+    char *cmd;
+    while (cmd_queue_get(&cmd_queue, &cmd) > 0 && cmd) {
+      log_info("processing lua command: %s", cmd);
+      if (luaL_dostring(lua, cmd)) {
+        log_error("error: %s", lua_tostring(lua, -1));
+        lua_pop(lua, 1);
       }
+      cmd_queue_unget(&cmd_queue, cmd);
+    }
+
+    lua_getglobal(lua, "render_callback");
+    if (!lua_isnoneornil(lua, -1)) {
+      if (lua_pcall(lua, 0, 0, 0) != 0) {
+        log_error("render error: %s", lua_tostring(lua, -1));
+      }
+    } else {
+      lua_pop(lua, -1);
     }
     context_end_frame(c);
   }
 
-  video_close(&video);
-  audio_close(&audio);
+  cmd_queue_free(&cmd_queue);
+
+  lua_getglobal(lua, "on_close_callback");
+  if (!lua_isnoneornil(lua, -1)) {
+    if (lua_pcall(lua, 0, 0, 0) != 0) {
+      log_error("on close callback error: %s", lua_tostring(lua, -1));
+    }
+  } else {
+    lua_pop(lua, -1);
+  }
+
+  lua_close(lua);
   context_free(c);
 
   return 0;

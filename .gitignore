@@ -4,6 +4,7 @@ Makefile
 
 # LSP settings
 .clangd
+.luarc.json
 
 # build directory
 build
@@ -11,4 +12,17 @@ build
 # executable
 a.out
 
+# dotenv file
+.env
+
+# test media files
+*.mkv
+*.wav
+*.webm
+
+# debug frame output files
+frames/
+
+# lua scripts (currently private)
+lua/scripts/
 

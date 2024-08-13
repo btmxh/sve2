@@ -63,3 +63,10 @@ void audio_seek(audio_t *a, i64 time);
  */
 void audio_get_samples(audio_t *a, i32 num_samples[static 1],
                        u8 samples[*num_samples]);
+
+/**
+ * @brief heap-allocate an audio_t object, used in lua API
+ *
+ * @return sve2_malloc(sizeof(audio_t))
+ */
+audio_t* audio_alloc();

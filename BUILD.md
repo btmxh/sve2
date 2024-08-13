@@ -15,13 +15,17 @@ The project requires C11 (+ some C23 features) and dependencies:
 - [glad](https://gen.glad.sh)
     - GL=4.3+, with extensions GL_EXT_EGL_image_storage
     - EGL=1.5+ with extensions EGL_EXT_image_dma_buf_import, EGL_KHR_image_base
-- [OpenAL](https://www.openal.org) or [OpenAL Soft](https://github.com/kcat/openal-soft)
-- [NanoVG](https://github.com/memononen/nanovg)
+- [miniaudio](https://miniaud.io/), don't use the single-include version if you don't want to destroy your LSP
 - [ffmpeg](https://ffmpeg.org)
 - [log.c](https://github.com/innerout/log.c)
 - [arena](https://github.com/tsoding/arena)
+- [stb](https://github.com/nothings/stb)
+- [luajit](https://luajit.org)
+- [dotenv-c](https://github.com/Isty001/dotenv-c)
 
-Define `SVE2_NO_NONSTD` to disable non-standard features
+Lua API dependencies:
+- [inspect](https://github.com/kikito/inspect.lua)
+- [penlight](https://github.com/lunarmodules/Penlight)
 
 Currently only support Linux for the time being.
 

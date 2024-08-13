@@ -14,8 +14,7 @@ static void map_hw_texture(ffmpeg_video_stream_t *v, const AVFrame *vaapi_frame,
   prime_frame->format = AV_PIX_FMT_DRM_PRIME;
   nassert_ffmpeg(av_hwframe_map(prime_frame, vaapi_frame,
                                 AV_HWFRAME_MAP_READ | AV_HWFRAME_MAP_DIRECT));
-  const AVDRMFrameDescriptor *prime =
-      (const AVDRMFrameDescriptor *)prime_frame->data[0];
+  AVDRMFrameDescriptor *prime = (AVDRMFrameDescriptor *)prime_frame->data[0];
   for (i32 i = 0; i < prime->nb_objects; ++i) {
     v->prime_fds[i] = prime->objects[i].fd;
   }
@@ -97,6 +96,11 @@ static void map_hw_texture(ffmpeg_video_stream_t *v, const AVFrame *vaapi_frame,
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   }
+
+  // av_frame_unref actually close the DRM fds, which caused a bug that took me
+  // hours to find. Here, we lied to ffmpeg that there are no objects (and
+  // therefore fds), which basically let us take ownership of the fds.
+  prime->nb_objects = 0;
 }
 
 static void unmap_hw_texture(ffmpeg_video_stream_t *v) {

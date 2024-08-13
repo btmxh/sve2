@@ -201,3 +201,5 @@ i32 shader_use(shader_t *s) {
   }
   return s->version;
 }
+
+GLuint shader_get_program(shader_t *s) { return s->program; }
