@@ -22,7 +22,7 @@ sve.free = rinit.free
 sve.ctx = require('sve.context')
 
 local callbacks = require("sve.callbacks")
-sve.set_render_callback = callbacks.set_render_callback
-sve.set_on_close_callback = callbacks.set_on_close_callback
+sve.add_render_callback = callbacks.add_render_callback
+sve.add_on_close_callback = callbacks.add_on_close_callback
 
 return sve
